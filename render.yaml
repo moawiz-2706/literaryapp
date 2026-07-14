@@ -7,17 +7,11 @@ services:
     startCommand: node index.js
     healthCheckPath: /health
     autoDeploy: true
-    disk:
-      name: app-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3001
-      - key: DB_PATH
-        value: /data/app.db
+        value: 10000
       - key: APP_BASE_URL
         sync: false
       - key: FRONTEND_BASE_URL
@@ -62,11 +56,5 @@ services:
         sync: false
       - key: SUPABASE_BUCKET
         value: book-pdfs
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: STRIPE_PLATFORM_ACCOUNT_ID
-        sync: false
-      - key: AGENCY_FEE_PER_ORDER
-        value: "1.00"
+      - key: AGENCY_SERVICE_FEE_PER_ORDER
+        value: "10.00"
