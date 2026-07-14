@@ -77,6 +77,8 @@ app.use(morgan('combined'));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/oauth', require('./routes/oauth'));
+// GHL sends INSTALL/UNINSTALL events to /oauth/webhook
+// This is registered separately in the GHL Developer Portal as the App Webhook URL
 app.use('/books', require('./routes/books'));
 app.use('/print-jobs', require('./routes/printJobs'));
 app.use('/webhooks', require('./routes/webhooks'));

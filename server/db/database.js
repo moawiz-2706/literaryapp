@@ -132,6 +132,10 @@ async function getAllGhlTokens() {
   return result.rows;
 }
 
+async function deleteGhlToken(locationId) {
+  await db.execute({ sql: 'DELETE FROM ghl_tokens WHERE location_id = ?', args: [locationId] });
+}
+
 // ── Lulu Token Operations ─────────────────────────────────────────────────────
 
 async function storeLuluToken(accessToken, expiresIn) {
@@ -277,7 +281,7 @@ function camelToSnake(str) {
 
 module.exports = {
   initDatabase,
-  upsertGhlToken, getGhlToken, getAllGhlTokens,
+  upsertGhlToken, getGhlToken, getAllGhlTokens, deleteGhlToken,
   storeLuluToken, getLatestLuluToken,
   getNextBookNumber, createBook, updateBook, getBook, getBooksByLocation,
   createPrintJob, updatePrintJob, getPrintJobByLuluId, getPrintJobByContactAndBook,

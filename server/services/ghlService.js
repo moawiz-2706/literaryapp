@@ -38,6 +38,26 @@ async function exchangeCodeForTokens(code) {
   return resp.data;
 }
 
+/**
+ * Exchange an agency (Company) token for a location-scoped token.
+ * Called from the INSTALL webhook when a sub-account installs the app
+ * after the agency has already completed the OAuth flow.
+ */
+async function exchangeAgencyTokenForLocation(agencyAccessToken, companyId, locationId) {
+  const resp = await axios.post(
+    `${GHL_BASE}/oauth/locationToken`,
+    new URLSearchParams({ companyId, locationId }).toString(),
+    {
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Bearer ${agencyAccessToken}`,
+        Version: '2021-07-28'
+      }
+    }
+  );
+  return resp.data;
+}
 
 async function refreshAccessToken(locationId) {
   const stored = await db.getGhlToken(locationId);
@@ -55,7 +75,6 @@ async function refreshAccessToken(locationId) {
   await db.upsertGhlToken(locationId, stored.company_id, access_token, refresh_token, expires_in);
   return access_token;
 }
-
 
 async function getValidToken(locationId) {
   const stored = await db.getGhlToken(locationId);
@@ -349,6 +368,7 @@ async function getPaymentsSummary(locationId) {
 
 module.exports = {
   exchangeCodeForTokens,
+  exchangeAgencyTokenForLocation,
   refreshAccessToken,
   getValidToken,
   getTokensForLocation,
