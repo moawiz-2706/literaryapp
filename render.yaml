@@ -1,0 +1,72 @@
+services:
+  - type: web
+    name: literaryapp-lulu-middleware
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: app-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DB_PATH
+        value: /data/app.db
+      - key: APP_BASE_URL
+        sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
+      - key: GHL_CLIENT_ID
+        sync: false
+      - key: GHL_CLIENT_SECRET
+        sync: false
+      - key: GHL_API_BASE
+        value: https://services.leadconnectorhq.com
+      - key: GHL_PIPELINE_ID
+        sync: false
+      - key: GHL_STAGE_ORDER_RECEIVED
+        sync: false
+      - key: GHL_STAGE_SENT_TO_PRINT
+        sync: false
+      - key: GHL_STAGE_IN_PRODUCTION
+        sync: false
+      - key: GHL_STAGE_SHIPPED
+        sync: false
+      - key: GHL_STAGE_DELIVERED
+        sync: false
+      - key: GHL_STAGE_FULFILLMENT_ISSUE
+        sync: false
+      - key: GHL_FIELD_LULU_PRINT_JOB_ID
+        sync: false
+      - key: GHL_FIELD_TRACKING_NUMBER
+        sync: false
+      - key: GHL_FIELD_FULFILLMENT_STATUS
+        sync: false
+      - key: LULU_CLIENT_ID
+        sync: false
+      - key: LULU_CLIENT_SECRET
+        sync: false
+      - key: LULU_SANDBOX
+        value: "false"
+      - key: LULU_WEBHOOK_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: book-pdfs
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PLATFORM_ACCOUNT_ID
+        sync: false
+      - key: AGENCY_FEE_PER_ORDER
+        value: "1.00"
