@@ -24,29 +24,38 @@ function ghlHeaders(token) {
 // ── OAuth ─────────────────────────────────────────────────────────────────────
 
 async function exchangeCodeForTokens(code) {
-  const resp = await axios.post(GHL_AUTH, {
+  const params = new URLSearchParams({
     client_id: process.env.GHL_CLIENT_ID,
     client_secret: process.env.GHL_CLIENT_SECRET,
     grant_type: 'authorization_code',
     code,
-    redirect_uri: `${process.env.APP_BASE_URL}/oauth/callback`
-  }, { headers: { 'Content-Type': 'application/json' } });
+    redirect_uri: `${process.env.APP_BASE_URL}/oauth/callback`,
+    user_type: 'Company'
+  });
+  const resp = await axios.post(GHL_AUTH, params.toString(), {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
   return resp.data;
 }
+
 
 async function refreshAccessToken(locationId) {
   const stored = await db.getGhlToken(locationId);
   if (!stored) throw new Error(`No token found for location ${locationId}`);
-  const resp = await axios.post(GHL_AUTH, {
+  const params = new URLSearchParams({
     client_id: process.env.GHL_CLIENT_ID,
     client_secret: process.env.GHL_CLIENT_SECRET,
     grant_type: 'refresh_token',
     refresh_token: stored.refresh_token
-  }, { headers: { 'Content-Type': 'application/json' } });
+  });
+  const resp = await axios.post(GHL_AUTH, params.toString(), {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
   const { access_token, refresh_token, expires_in } = resp.data;
   await db.upsertGhlToken(locationId, stored.company_id, access_token, refresh_token, expires_in);
   return access_token;
 }
+
 
 async function getValidToken(locationId) {
   const stored = await db.getGhlToken(locationId);
