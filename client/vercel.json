@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/(.* )", "destination": "/index.html" }
   ],
   "headers": [
     {
@@ -8,11 +8,19 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors 'self' https://*.gohighlevel.com https://*.leadconnectorhq.com https://*.msgsndr.com"
+          "value": "frame-ancestors 'self' https://*.gohighlevel.com https://*.leadconnectorhq.com https://*.msgsndr.com https://app.gohighlevel.com https://app.leadconnectorhq.com"
         },
         {
           "key": "X-Frame-Options",
-          "value": "ALLOW-FROM https://app.gohighlevel.com"
+          "value": "ALLOWALL"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "cross-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "unsafe-none"
         }
       ]
     }
