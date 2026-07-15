@@ -28,7 +28,7 @@ export default function RoyaltyDashboardPage() {
   if (!locationId) {
     return (
       <div style={{ padding: '40px' }}>
-        <Alert variant="error" title="Configuration Error">This page must be opened from within your GoHighLevel account.</Alert>
+        <Alert variant="error" title="Configuration Error">This page must be opened from within your account.</Alert>
       </div>
     );
   }

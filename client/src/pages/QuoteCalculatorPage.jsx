@@ -104,7 +104,7 @@ export default function QuoteCalculatorPage() {
         {result && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <StatCard label="Print Cost" value={`$${result.printCost.toFixed(2)}`} sub="Charged by Lulu" color={colors.error} />
+              <StatCard label="Print Cost" value={`$${result.printCost.toFixed(2)}`} sub="Charged by  Literary App" color={colors.error} />
               <StatCard label="Flat-Rate Shipping" value={`$${flatRate.toFixed(2)}`} sub="Charged to reader" color={colors.warning} />
               <StatCard label="Your Retail Price" value={result.retailPrice > 0 ? `$${result.retailPrice.toFixed(2)}` : 'Not set'} sub="What readers pay" color={colors.primary} />
               <StatCard label="Your Profit" value={previewProfit !== null && result.retailPrice > 0 ? `$${previewProfit.toFixed(2)}` : '--'} sub="Per book sold" color={colors.success} />
@@ -116,7 +116,7 @@ export default function QuoteCalculatorPage() {
                 <tbody>
                   {[
                     ['Reader pays (retail)', `$${result.retailPrice.toFixed(2)}`],
-                    ['Lulu print cost', `-$${result.printCost.toFixed(2)}`],
+                    ['Literary App print cost', `-$${result.printCost.toFixed(2)}`],
                     ['Flat-rate shipping charged', `-$${flatRate.toFixed(2)}`],
                     ['Your profit per book', `$${previewProfit.toFixed(2)}`]
                   ].map(([label, value], i) => (
@@ -128,7 +128,7 @@ export default function QuoteCalculatorPage() {
                 </tbody>
               </table>
               <Alert variant="info" style={{ marginTop: '16px' }}>
-                The flat-rate shipping amount is what you charge readers. Lulu's actual shipping cost is ${result.actualShippingCost?.toFixed(2) || '0.00'}, which is covered by LiteraryApp's fulfillment fee.
+                The flat-rate shipping amount is what you charge readers.Literary App's actual shipping cost is ${result.actualShippingCost?.toFixed(2) || '0.00'}, which is covered by LiteraryApp's fulfillment fee.
               </Alert>
             </Card>
           </>

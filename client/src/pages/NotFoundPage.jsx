@@ -8,7 +8,7 @@ export default function NotFoundPage() {
         <h1 style={{ fontSize: '48px', fontWeight: '700', color: colors.gray200, margin: '0 0 8px' }}>404</h1>
         <h2 style={{ fontSize: '18px', fontWeight: '600', color: colors.gray900, margin: '0 0 12px' }}>Page Not Found</h2>
         <p style={{ color: colors.gray500, fontSize: '14px', margin: '0 0 20px' }}>
-          This page does not exist. Open this app from your GoHighLevel navigation menu.
+          This page does not exist. Open this app from your account navigation menu.
         </p>
         <Alert variant="info">
           Available pages: <code>/book-setup</code>, <code>/quote-calculator</code>, <code>/royalty-dashboard</code>

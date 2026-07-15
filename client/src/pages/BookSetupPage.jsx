@@ -66,7 +66,7 @@ export default function BookSetupPage() {
                 : b
             ));
             if (status === 'Ready') {
-              setSuccessMsg(`"${book.title}" has been validated and is ready to sell. Attach the GHL product to your order form.`);
+              setSuccessMsg(`"${book.title}" has been validated and is ready to sell. Attach the product to your order form.`);
             } else if (status === 'Error') {
               setError(`"${book.title}" failed validation. Please check your PDF files and try again.`);
             }
@@ -150,7 +150,7 @@ export default function BookSetupPage() {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
         <Alert variant="error" title="Configuration Error">
-          This page must be opened from within your GoHighLevel account. No location ID was detected.
+          This page must be opened from within your account. No location ID was detected.
         </Alert>
       </div>
     );
@@ -168,7 +168,7 @@ export default function BookSetupPage() {
     <div style={{ minHeight: '100vh', background: colors.gray50, fontFamily: colors.fontFamily }}>
       <PageHeader
         title="Set Up On-Demand Printing"
-        subtitle="Upload your books and connect them to Lulu's global print network. Each book becomes a GHL product you can attach to your order forms."
+        subtitle="Upload your books. Each book becomes a product you can attach to your order forms."
         action={!showForm && (
           <Button onClick={() => { setShowForm(true); setError(null); setSuccessMsg(null); }}>
             + Add New Book
@@ -197,10 +197,10 @@ export default function BookSetupPage() {
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
             {[
-              { step: '1', title: 'Upload Your Book', desc: 'Upload your interior and cover PDFs. Lulu validates them automatically.' },
-              { step: '2', title: 'Attach to Order Form', desc: 'Each validated book becomes a GHL product. Attach it to any order form.' },
-              { step: '3', title: 'Reader Buys', desc: 'When a reader places an order, the system automatically submits it to Lulu for printing.' },
-              { step: '4', title: 'Lulu Ships Direct', desc: 'Lulu prints and ships the book directly to your reader. You receive tracking updates.' }
+              { step: '1', title: 'Upload Your Book', desc: 'Upload your interior and cover PDFs.  Literary App validates them automatically.' },
+              { step: '2', title: 'Attach to Order Form', desc: 'Each validated book becomes a product. Attach it to any order form.' },
+              { step: '3', title: 'Reader Buys', desc: 'When a reader places an order, the system automatically submits it for printing.' },
+              { step: '4', title: 'Ships Direct', desc: 'We prints and ships the book directly to your reader. You receive tracking updates.' }
             ].map(item => (
               <div key={item.step} style={{
                 background: colors.gray50, borderRadius: '8px', padding: '16px',
@@ -297,7 +297,7 @@ export default function BookSetupPage() {
                 />
               </div>
               <Alert variant="info" style={{ marginBottom: '16px' }}>
-                Files will be uploaded to secure storage and validated by Lulu. Validation may take a few minutes. Do not close this page.
+                Files will be uploaded to secure storage and validated by Literary App. Validation may take a few minutes. Do not close this page.
               </Alert>
               <div style={{ display: 'flex', gap: '12px' }}>
                 <Button type="submit" disabled={submitting}>
@@ -351,12 +351,12 @@ export default function BookSetupPage() {
                         display: 'flex', alignItems: 'center', gap: '8px',
                         marginTop: '8px', fontSize: '13px', color: colors.primary
                       }}>
-                        <Spinner size={14} /> Validating files with Lulu...
+                        <Spinner size={14} /> Validating files with  Literary App...
                       </div>
                     )}
                     {book.status === 'Ready' && book.ghl_product_id && (
                       <div style={{ marginTop: '8px', fontSize: '12px', color: colors.success }}>
-                        GHL Product created. Attach it to your order form to start selling.
+                        Product created. Attach it to your order form to start selling.
                       </div>
                     )}
                     {book.status === 'Error' && (
