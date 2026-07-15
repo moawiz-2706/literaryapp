@@ -75,26 +75,133 @@ async function getCoverValidationStatus(validationId) {
 }
 
 // ── Print Cost Calculation ────────────────────────────────────────────────────
-// Royalty formula: Retail Price - Print Cost - Flat-Rate Shipping = Author Profit
-// US Domestic flat rate: $5.95 | International: $14.95
+// Calls the Lulu /print-job-cost-calculations/ endpoint.
+//
+// IMPORTANT: The Lulu API requires a fully-formed shipping_address with:
+//   - street1, city, country_code, postcode  (always required)
+//   - state_code                             (required for US, CA, AU, and ~30 other countries)
+//   - phone_number                           (required for actual print jobs; recommended for quotes)
+//
+// The caller MUST supply a valid shippingAddress object. If none is provided,
+// a safe US default is used so the API never returns a shipping_address error.
+//
+// The `shipping_option` field accepts:
+//   MAIL | PRIORITY_MAIL | GROUND_HD | GROUND_BUS | GROUND | EXPEDITED | EXPRESS
 
-async function calculatePrintCost(podPackageId, pageCount, shippingLevel = 'MAIL', shippingAddress = null) {
+async function calculatePrintCost(
+  podPackageId,
+  pageCount,
+  shippingLevel = 'MAIL',
+  shippingAddress = null,
+  quantity = 1
+) {
   const token = await getLuluToken();
-  const payload = {
-    line_items: [{ pod_package_id: podPackageId, page_count: pageCount, quantity: 1 }],
-    shipping_address: shippingAddress || { country_code: 'US', city: 'Austin', postcode: '78701', street1: '123 Main St' },
-    shipping_option: shippingLevel
+
+  // Build a safe, fully-formed shipping address.
+  // The Lulu API validates every field; missing or empty required fields
+  // cause a 400 with shipping_address.detail.errors.
+  const addr = shippingAddress || {};
+  const resolvedAddress = {
+    street1:      addr.street1      || addr.address1 || addr.line1 || '123 Main St',
+    street2:      addr.street2      || addr.address2 || undefined,
+    city:         addr.city         || 'Austin',
+    state_code:   addr.state_code   || addr.state    || 'TX',
+    country_code: addr.country_code || addr.country  || 'US',
+    postcode:     addr.postcode     || addr.postal_code || addr.zip || '78701',
+    phone_number: addr.phone_number || addr.phone    || '5125550100'
   };
+
+  // Remove undefined/empty optional fields to avoid Lulu validation warnings
+  if (!resolvedAddress.street2) delete resolvedAddress.street2;
+
+  const payload = {
+    line_items: [{
+      pod_package_id: podPackageId,
+      page_count:     parseInt(pageCount),
+      quantity:       parseInt(quantity) || 1
+    }],
+    shipping_address: resolvedAddress,
+    shipping_option:  shippingLevel
+  };
+
   const resp = await axios.post(
     `${LULU_BASE}/print-job-cost-calculations/`,
     payload,
     { headers: headers(token) }
   );
+
   const data = resp.data;
-  const printCost = parseFloat(data.line_item_costs?.[0]?.cost_excl_discounts || data.total_cost_excl_tax || 0);
-  const shippingCost = parseFloat(data.shipping_cost?.cost_excl_tax || 0);
-  const totalCost = printCost + shippingCost;
-  return { printCost, shippingCost, totalCost, currency: data.currency || 'USD', raw: data };
+
+  // Parse line item costs
+  const lineItemCost = data.line_item_costs?.[0] || {};
+  const unitPrintCost  = parseFloat(lineItemCost.cost_excl_discounts || 0);
+  const totalPrintCost = parseFloat(lineItemCost.total_cost_excl_tax || lineItemCost.total_cost_excl_discounts || 0);
+
+  // Parse shipping cost
+  const shippingCost = parseFloat(data.shipping_cost?.total_cost_excl_tax || 0);
+
+  // Parse fulfillment fee
+  const fulfillmentFee = parseFloat(data.fulfillment_cost?.total_cost_excl_tax || 0.75);
+
+  // Parse discounts
+  const discounts = lineItemCost.discounts || [];
+
+  // Parse tax
+  const totalTax = parseFloat(data.total_tax || 0);
+  const totalCostInclTax = parseFloat(data.total_cost_incl_tax || 0);
+
+  // Total cost excluding tax
+  const totalCost = parseFloat(data.total_cost_excl_tax || 0) || (totalPrintCost + shippingCost + fulfillmentFee);
+
+  return {
+    unitPrintCost,
+    totalPrintCost,
+    // Legacy field name kept for backward compatibility with existing callers
+    printCost: unitPrintCost,
+    shippingCost,
+    fulfillmentFee,
+    totalCost,
+    discounts,
+    totalTax,
+    totalCostInclTax,
+    currency: data.currency || 'USD',
+    raw: data
+  };
+}
+
+// ── Shipping Options ──────────────────────────────────────────────────────────
+// Calls the Lulu /shipping-options/ endpoint to get live shipping availability
+// and estimated delivery dates for a given country/region.
+//
+// Required: countryCode, pageCount, podPackageId
+// Optional: stateCode, quantity, currency
+
+async function getShippingOptions({ countryCode, stateCode, pageCount, podPackageId, quantity = 1, currency = 'USD' }) {
+  const token = await getLuluToken();
+
+  const shippingAddress = {
+    country: countryCode,
+    city:    'N/A',
+    postcode: '00000'
+  };
+  if (stateCode) shippingAddress.state_code = stateCode;
+
+  const payload = {
+    currency,
+    line_items: [{
+      pod_package_id: podPackageId,
+      page_count:     parseInt(pageCount),
+      quantity:       parseInt(quantity) || 1
+    }],
+    shipping_address: shippingAddress
+  };
+
+  const resp = await axios.post(
+    `${LULU_BASE}/shipping-options/`,
+    payload,
+    { headers: headers(token) }
+  );
+  return resp.data;
 }
 
 // ── Print Job Creation ────────────────────────────────────────────────────────
@@ -116,18 +223,22 @@ async function createPrintJob(orderData) {
       }
     ],
     shipping_address: {
-      name: orderData.shippingAddress.name,
-      street1: orderData.shippingAddress.street1,
-      street2: orderData.shippingAddress.street2 || '',
-      city: orderData.shippingAddress.city,
-      state_code: orderData.shippingAddress.state_code || '',
+      name:         orderData.shippingAddress.name,
+      street1:      orderData.shippingAddress.street1,
+      street2:      orderData.shippingAddress.street2 || undefined,
+      city:         orderData.shippingAddress.city,
+      state_code:   orderData.shippingAddress.state_code || '',
       country_code: orderData.shippingAddress.country_code || 'US',
-      postcode: orderData.shippingAddress.postcode,
-      email: orderData.readerEmail,
-      phone_number: orderData.shippingAddress.phone || ''
+      postcode:     orderData.shippingAddress.postcode,
+      phone_number: orderData.shippingAddress.phone_number || orderData.shippingAddress.phone || '',
+      email:        orderData.readerEmail
     },
-    shipping_option: orderData.shippingLevel || 'MAIL'
+    shipping_level: orderData.shippingLevel || 'MAIL'
   };
+
+  // Remove undefined optional fields
+  if (!payload.shipping_address.street2) delete payload.shipping_address.street2;
+
   const resp = await axios.post(`${LULU_BASE}/print-jobs/`, payload, { headers: headers(token) });
   return resp.data;
 }
@@ -187,6 +298,7 @@ module.exports = {
   getInteriorValidationStatus,
   getCoverValidationStatus,
   calculatePrintCost,
+  getShippingOptions,
   createPrintJob,
   getPrintJobStatus,
   registerWebhook,
