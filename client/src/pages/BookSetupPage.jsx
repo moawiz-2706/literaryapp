@@ -217,14 +217,6 @@ export default function BookSetupPage() {
             ))}
           </div>
 
-          {/* Service fee notice */}
-          <div style={{
-            marginTop: '16px', padding: '12px 16px',
-            background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: '6px',
-            fontSize: '13px', color: '#5D4037'
-          }}>
-            A $10.00 platform service fee is charged to your account for each order processed through the print network. This covers order routing, tracking, and fulfillment management.
-          </div>
         </Card>
 
         {/* ── Add Book Form ── */}

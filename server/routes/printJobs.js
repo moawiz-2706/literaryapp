@@ -91,7 +91,7 @@ router.post('/create', async (req, res) => {
       companyId = tokenRow?.company_id || '';
     } catch (_) {}
 
-    const serviceFee = parseFloat(process.env.AGENCY_SERVICE_FEE_PER_ORDER || '10.00');
+    const serviceFee = parseFloat(process.env.AGENCY_SERVICE_FEE_PER_ORDER || '.50');
     const jobId = uuidv4();
 
     await db.createPrintJob({
