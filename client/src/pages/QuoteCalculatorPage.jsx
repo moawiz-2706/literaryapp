@@ -213,12 +213,7 @@ export default function QuoteCalculatorPage() {
   const [quantity, setQuantity] = useState(1);
   const [retailPrice, setRetailPrice] = useState('');
   const [isInternational, setIsInternational] = useState(false);
-  const [useCustomAddress, setUseCustomAddress] = useState(false);
-  const [street1, setStreet1] = useState('');
-  const [city, setCity] = useState('');
-  const [stateCode, setStateCode] = useState('');
-  const [postcode, setPostcode] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
+  // Shipping address removed — flat rate applied regardless
 
   // ── Validation errors ──────────────────────────────────────────────────────
   const [fieldErrors, setFieldErrors] = useState({});
@@ -268,11 +263,6 @@ export default function QuoteCalculatorPage() {
     else if (!bookComponents?.binding) errs.bookOptions = 'Please select a binding type.';
     else if (!bookComponents?.paper) errs.bookOptions = 'Please select a paper type.';
     else if (!bookComponents?.coverFinish) errs.bookOptions = 'Please select a cover finish.';
-    if (useCustomAddress) {
-      if (!street1.trim()) errs.street1 = 'Street address is required.';
-      if (!city.trim()) errs.city = 'City is required.';
-      if (!postcode.trim()) errs.postcode = 'Postcode is required.';
-    }
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -296,17 +286,6 @@ export default function QuoteCalculatorPage() {
       quantity:    parseInt(quantity) || 1,
       countryCode: isInternational ? 'GB' : 'US',
     };
-
-    if (useCustomAddress && street1 && city && postcode) {
-      payload.shippingAddress = {
-        street1,
-        city,
-        state_code: stateCode,
-        country_code: isInternational ? 'GB' : 'US',
-        postcode,
-        phone_number: phoneNumber,
-      };
-    }
 
     try {
       const r = await calculateQuote(payload);
@@ -477,55 +456,6 @@ export default function QuoteCalculatorPage() {
                 <div className="qc-shipping-rate">${flatShippingRate.toFixed(2)}</div>
               </div>
 
-              {/* Optional shipping address */}
-              <div style={{ marginTop: 16 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, color: colors.gray700 }}>
-                  <input
-                    type="checkbox"
-                    checked={useCustomAddress}
-                    onChange={e => setUseCustomAddress(e.target.checked)}
-                    style={{ width: 16, height: 16 }}
-                  />
-                  Enter a shipping address for accurate regional tax calculation
-                </label>
-              </div>
-
-              {useCustomAddress && (
-                <div style={{ marginTop: 16, padding: '16px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
-                  <div className="qc-addr-grid">
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <label className="qc-label-sm">Street Address</label>
-                      <input type="text" className="qc-select-native" value={street1}
-                        onChange={e => { setStreet1(e.target.value); setFieldErrors(e2 => ({ ...e2, street1: undefined })); }} placeholder="123 Main St"
-                        style={{ border: fieldErrors.street1 ? '1px solid #DC2626' : undefined }} />
-                      {fieldErrors.street1 && <p style={{ fontSize: 12, color: '#DC2626', marginTop: -12, marginBottom: 12 }}>{fieldErrors.street1}</p>}
-                    </div>
-                    <div>
-                      <label className="qc-label-sm">City</label>
-                      <input type="text" className="qc-select-native" value={city}
-                        onChange={e => { setCity(e.target.value); setFieldErrors(e2 => ({ ...e2, city: undefined })); }} placeholder="Austin"
-                        style={{ border: fieldErrors.city ? '1px solid #DC2626' : undefined }} />
-                    </div>
-                    <div>
-                      <label className="qc-label-sm">State / Province</label>
-                      <input type="text" className="qc-select-native" value={stateCode}
-                        onChange={e => setStateCode(e.target.value)} placeholder="TX" />
-                    </div>
-                    <div>
-                      <label className="qc-label-sm">Postcode / ZIP</label>
-                      <input type="text" className="qc-select-native" value={postcode}
-                        onChange={e => { setPostcode(e.target.value); setFieldErrors(e2 => ({ ...e2, postcode: undefined })); }} placeholder="78701"
-                        style={{ border: fieldErrors.postcode ? '1px solid #DC2626' : undefined }} />
-                      {fieldErrors.postcode && <p style={{ fontSize: 12, color: '#DC2626', marginTop: -12, marginBottom: 12 }}>{fieldErrors.postcode}</p>}
-                    </div>
-                    <div>
-                      <label className="qc-label-sm">Phone Number</label>
-                      <input type="text" className="qc-select-native" value={phoneNumber}
-                        onChange={e => setPhoneNumber(e.target.value)} placeholder="5125550100" />
-                    </div>
-                  </div>
-                </div>
-              )}
             </Card>
 
             {/* ── Error ─────────────────────────────────────────────────── */}
