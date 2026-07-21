@@ -18,14 +18,16 @@ router.get('/royalties', async (req, res) => {
     // Aggregate metrics
     const totalOrders = jobs.length;
     const totalRevenue = jobs.reduce((sum, j) => sum + (j.retail_price || 0), 0);
-    const totalPrintCost = jobs.reduce((sum, j) => sum + (j.print_cost || 0) + (j.shipping_cost || 0), 0);
+    const totalPrintCost = jobs.reduce((sum, j) =>
+      sum + (j.print_cost || 0) + (j.shipping_cost || 0) + (j.internal_shipping_cost || 0) + (j.markup || 0), 0);
     const totalProfit = totalRevenue - totalPrintCost;
 
     // Per-book breakdown
     const bookStats = books.map(book => {
       const bookJobs = jobs.filter(j => j.book_title === book.title);
       const bookRevenue = bookJobs.reduce((sum, j) => sum + (j.retail_price || 0), 0);
-      const bookCost = bookJobs.reduce((sum, j) => sum + (j.print_cost || 0) + (j.shipping_cost || 0), 0);
+      const bookCost = bookJobs.reduce((sum, j) =>
+        sum + (j.print_cost || 0) + (j.shipping_cost || 0) + (j.internal_shipping_cost || 0) + (j.markup || 0), 0);
       return {
         bookId: book.id,
         title: book.title,
@@ -76,8 +78,6 @@ router.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'development',
-    luluMode: process.env.LULU_SANDBOX === 'true' ? 'sandbox' : 'production'
   });
 });
 

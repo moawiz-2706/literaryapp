@@ -1,22 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api';
+import { fetchFullOptions } from '../services/optionsService';
+import BookOptionsForm from '../components/BookOptionsForm';
 import {
   colors, Button, Card, Alert, Badge, Spinner, Input, Select,
   PageHeader, FileUpload, statusBadge
 } from '../components/UI';
 
-const POD_PACKAGES = [
-  { id: '0600X0900BWSTDPB060UW444MXX', label: '6x9 Black & White Paperback' },
-  { id: '0600X0900FCSTDPB080CW444MXX', label: '6x9 Full Color Paperback' },
-  { id: '0600X0900BWSTDHC060UW444MXX', label: '6x9 Black & White Hardcover' },
-  { id: '0850X1100BWSTDPB060UW444MXX', label: '8.5x11 Black & White Paperback' },
-  { id: '0500X0800BWSTDPB060UW444MXX', label: '5x8 Black & White Paperback' }
-];
-
 const EMPTY_FORM = {
-  title: '', podPackageId: POD_PACKAGES[0].id,
-  retailPrice: '', pageCount: '', description: ''
+  title: '',
+  retailPrice: '',
+  pageCount: '',
+  description: ''
 };
 
 export default function BookSetupPage() {
@@ -34,6 +30,24 @@ export default function BookSetupPage() {
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
+  // ── Book options (shared with Quote Calculator) ──────────────────────────
+  const [options, setOptions] = useState(null);
+  const [optsLoading, setOptsLoading] = useState(true);
+  const [optsError, setOptsError] = useState(false);
+  const [bookComponents, setBookComponents] = useState(null);
+
+  // Load options on mount
+  useEffect(() => {
+    fetchFullOptions()
+      .then(setOptions)
+      .catch(() => setOptsError(true))
+      .finally(() => setOptsLoading(false));
+  }, []);
+
+  // ── Flat shipping info ──────────────────────────────────────────────────
+  const flatRateUS = options?.shippingRates?.usDomestic || 5.95;
+  const flatRateIntl = options?.shippingRates?.international || 14.95;
+
   // Load books on mount
   const loadBooks = useCallback(async () => {
     if (!locationId) return;
@@ -42,7 +56,7 @@ export default function BookSetupPage() {
       const resp = await api.get(`/books?locationId=${locationId}`);
       setBooks(resp.data.books || []);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -77,11 +91,11 @@ export default function BookSetupPage() {
     return () => intervals.forEach(clearInterval);
   }, [books]);
 
-  // ── Form Validation ─────────────────────────────────────────────────────────
+  // ── Form Validation ───────────────────────────────────────────────────────
   function validateForm() {
     const errors = {};
     if (!form.title.trim()) errors.title = 'Book title is required';
-    if (!form.podPackageId) errors.podPackageId = 'Print format is required';
+    if (!bookComponents?.podPackageId) errors.bookOptions = 'Please select all book options before uploading.';
     if (!form.retailPrice || isNaN(form.retailPrice) || parseFloat(form.retailPrice) <= 0)
       errors.retailPrice = 'Enter a valid retail price';
     if (!form.pageCount || isNaN(form.pageCount) || parseInt(form.pageCount) < 24)
@@ -92,7 +106,7 @@ export default function BookSetupPage() {
     return Object.keys(errors).length === 0;
   }
 
-  // ── Submit Book ─────────────────────────────────────────────────────────────
+  // ── Submit Book ────────────────────────────────────────────────────────────
   async function handleSubmit(e) {
     e.preventDefault();
     if (!validateForm()) return;
@@ -102,12 +116,18 @@ export default function BookSetupPage() {
     const formData = new FormData();
     formData.append('locationId', locationId);
     formData.append('title', form.title);
-    formData.append('podPackageId', form.podPackageId);
+    formData.append('podPackageId', bookComponents.podPackageId);
     formData.append('retailPrice', form.retailPrice);
     formData.append('pageCount', form.pageCount);
     formData.append('description', form.description);
     formData.append('interiorPdf', interiorFile);
     formData.append('coverPdf', coverFile);
+    formData.append('trim', bookComponents.trim);
+    formData.append('binding', bookComponents.binding);
+    formData.append('ink', bookComponents.ink);
+    formData.append('quality', bookComponents.quality);
+    formData.append('paper', bookComponents.paper);
+    formData.append('coverFinish', bookComponents.coverFinish || 'MXX');
 
     try {
       const resp = await api.post('/books/upload', formData, {
@@ -119,23 +139,24 @@ export default function BookSetupPage() {
         book_number: resp.data.bookNumber,
         title: form.title,
         status: 'Validating',
-        pod_package_id: form.podPackageId,
+        pod_package_id: bookComponents.podPackageId,
         retail_price: parseFloat(form.retailPrice),
         page_count: parseInt(form.pageCount)
       }]);
       setSuccessMsg(`"${form.title}" uploaded. Validation is in progress and may take a few minutes.`);
       setShowForm(false);
       setForm(EMPTY_FORM);
+      setBookComponents(null);
       setInteriorFile(null);
       setCoverFile(null);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.message);
     } finally {
       setSubmitting(false);
     }
   }
 
-  // ── Delete Book ─────────────────────────────────────────────────────────────
+  // ── Delete Book ────────────────────────────────────────────────────────────
   async function handleDelete(bookId, bookTitle) {
     if (!window.confirm(`Remove "${bookTitle}" from your print catalog?`)) return;
     try {
@@ -197,10 +218,10 @@ export default function BookSetupPage() {
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
             {[
-              { step: '1', title: 'Upload Your Book', desc: 'Upload your interior and cover PDFs.  Literary App validates them automatically.' },
-              { step: '2', title: 'Attach to Order Form', desc: 'Each validated book becomes a product. Attach it to any order form.' },
+              { step: '1', title: 'Choose Book Options', desc: 'Select trim, binding, ink, quality, paper, and cover finish — same options as the Quote Calculator.' },
+              { step: '2', title: 'Upload Your Book', desc: 'Upload your interior and cover PDFs. Literary App validates them automatically.' },
               { step: '3', title: 'Reader Buys', desc: 'When a reader places an order, the system automatically submits it for printing.' },
-              { step: '4', title: 'Ships Direct', desc: 'We prints and ships the book directly to your reader. You receive tracking updates.' }
+              { step: '4', title: 'Ships Direct', desc: 'We print and ship the book directly to your reader. Flat-rate shipping applied.' }
             ].map(item => (
               <div key={item.step} style={{
                 background: colors.gray50, borderRadius: '8px', padding: '16px',
@@ -217,6 +238,17 @@ export default function BookSetupPage() {
             ))}
           </div>
 
+          {/* ── Flat Shipping Info ── */}
+          <div style={{ marginTop: 20, padding: '14px 16px', background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1E40AF', marginBottom: 6 }}>Flat-Rate Shipping</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13, color: '#1D4ED8' }}>
+              <div>🇺🇸 US Domestic: <strong>${flatRateUS.toFixed(2)}</strong> (5–10 business days)</div>
+              <div>🌍 International: <strong>${flatRateIntl.toFixed(2)}</strong> (10–21 business days)</div>
+            </div>
+            <div style={{ fontSize: 11, color: '#3B82F6', marginTop: 6 }}>
+              Shipping is a flat rate included in every order. No surprise charges based on weight or distance.
+            </div>
+          </div>
         </Card>
 
         {/* ── Add Book Form ── */}
@@ -231,47 +263,88 @@ export default function BookSetupPage() {
               </Button>
             </div>
             <form onSubmit={handleSubmit}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <Input
-                    label="Book Title"
-                    value={form.title}
-                    onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                    error={formErrors.title}
-                    placeholder="My Amazing Book"
-                  />
+
+              {/* ── Book Options (Progressive Selection) ── */}
+              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #F3F4F6' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.gray900 }}>Book Options</span>
                 </div>
-                <Select
-                  label="Print Format"
-                  value={form.podPackageId}
-                  onChange={e => setForm(f => ({ ...f, podPackageId: e.target.value }))}
-                  error={formErrors.podPackageId}
-                >
-                  {POD_PACKAGES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                </Select>
-                <Input
-                  label="Page Count"
-                  type="number" min="24"
-                  value={form.pageCount}
-                  onChange={e => setForm(f => ({ ...f, pageCount: e.target.value }))}
-                  error={formErrors.pageCount}
-                  placeholder="250"
-                />
-                <Input
-                  label="Retail Price (USD)"
-                  type="number" step="0.01" min="0.01"
-                  value={form.retailPrice}
-                  onChange={e => setForm(f => ({ ...f, retailPrice: e.target.value }))}
-                  error={formErrors.retailPrice}
-                  placeholder="24.99"
-                />
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <Input
-                    label="Description (optional)"
-                    value={form.description}
-                    onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                    placeholder="A brief description of your book"
+                {optsLoading && (
+                  <div style={{ textAlign: 'center', padding: 24, color: colors.gray500 }}>
+                    <Spinner size={20} /> <span style={{ fontSize: 13, marginLeft: 8 }}>Loading print options…</span>
+                  </div>
+                )}
+                {optsError && (
+                  <Alert variant="warning" style={{ marginBottom: 12 }}>
+                    Could not load the latest print options. Using built-in defaults.
+                  </Alert>
+                )}
+                {!optsLoading && (
+                  <BookOptionsForm
+                    labels={options?.labels}
+                    onChange={setBookComponents}
+                    initialComponents={bookComponents}
                   />
+                )}
+                {formErrors.bookOptions && (
+                  <p style={{ fontSize: 12, color: '#DC2626', marginTop: 8 }}>{formErrors.bookOptions}</p>
+                )}
+                {bookComponents?.podPackageId && (
+                  <div style={{ marginTop: 10, padding: '8px 12px', background: '#F0FDF4', borderRadius: 6, fontSize: 12, color: '#16A34A' }}>
+                    Selected: <strong>{bookComponents.podPackageId}</strong>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Book Details ── */}
+              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #F3F4F6' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.gray900 }}>Book Details</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <Input
+                      label="Book Title"
+                      value={form.title}
+                      onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                      error={formErrors.title}
+                      placeholder="My Amazing Book"
+                    />
+                  </div>
+                  <Input
+                    label="Page Count"
+                    type="number" min="24"
+                    value={form.pageCount}
+                    onChange={e => setForm(f => ({ ...f, pageCount: e.target.value }))}
+                    error={formErrors.pageCount}
+                    placeholder="250"
+                  />
+                  <Input
+                    label="Retail Price (USD)"
+                    type="number" step="0.01" min="0.01"
+                    value={form.retailPrice}
+                    onChange={e => setForm(f => ({ ...f, retailPrice: e.target.value }))}
+                    error={formErrors.retailPrice}
+                    placeholder="24.99"
+                  />
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <Input
+                      label="Description (optional)"
+                      value={form.description}
+                      onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                      placeholder="A brief description of your book"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── File Uploads ── */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.gray900 }}>Upload PDF Files</span>
                 </div>
                 <FileUpload
                   label="Interior PDF"
@@ -288,6 +361,7 @@ export default function BookSetupPage() {
                   error={formErrors.coverFile}
                 />
               </div>
+
               <Alert variant="info" style={{ marginBottom: '16px' }}>
                 Files will be uploaded to secure storage and validated by Literary App. Validation may take a few minutes. Do not close this page.
               </Alert>
@@ -333,7 +407,7 @@ export default function BookSetupPage() {
                       {statusBadge(book.status)}
                     </div>
                     <div style={{ fontSize: '13px', color: colors.gray500 }}>
-                      {POD_PACKAGES.find(p => p.id === book.pod_package_id)?.label || book.pod_package_id}
+                      {book.pod_package_id}
                       {book.retail_price > 0 && ` · $${parseFloat(book.retail_price).toFixed(2)} retail`}
                       {book.print_cost > 0 && ` · $${parseFloat(book.print_cost).toFixed(2)} print cost`}
                       {book.author_profit > 0 && ` · $${parseFloat(book.author_profit).toFixed(2)} profit`}
@@ -343,7 +417,7 @@ export default function BookSetupPage() {
                         display: 'flex', alignItems: 'center', gap: '8px',
                         marginTop: '8px', fontSize: '13px', color: colors.primary
                       }}>
-                        <Spinner size={14} /> Validating files with  Literary App...
+                        <Spinner size={14} /> Validating files with Literary App...
                       </div>
                     )}
                     {book.status === 'Ready' && book.ghl_product_id && (

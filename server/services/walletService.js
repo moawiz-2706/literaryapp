@@ -1,90 +1,163 @@
+'use strict';
 /**
  * walletService.js
  *
- * Handles the GHL Marketplace Wallet Charge API.
- * Every time a print job is submitted, this service charges the sub-account
- * wallet a $10 service fee using the Create Wallet Charge endpoint.
+ * Manages subaccount wallet balances. Each subaccount (author) has a wallet
+ * that must be charged BEFORE an order is submitted to Lulu.
  *
- * Endpoint: POST https://services.leadconnectorhq.com/marketplace/billing/charges
- * Auth:     Sub-Account OAuth Token (charges.write scope required)
- * Docs:     https://marketplace.gohighlevel.com/docs/ghl/marketplace/charge/
+ * The charge includes:
+ *   - Printing cost (from Lulu)
+ *   - Customer-facing shipping cost (flat rate)
+ *   - Internal shipping cost (flat rate + $0.50 processing fee)
+ *   - Markup (author profit margin)
+ *   - Fulfillment fee
  */
 
-const axios = require('axios');
-const { getTokensForLocation, refreshTokenIfNeeded } = require('./ghlService');
+const db = require('../db/database');
 
-const GHL_API_BASE = process.env.GHL_API_BASE || 'https://services.leadconnectorhq.com';
-const APP_ID = process.env.GHL_APP_ID;
-const METER_ID = process.env.GHL_BILLING_METER_ID;
-const SERVICE_FEE = parseFloat(process.env.AGENCY_SERVICE_FEE_PER_ORDER || '10.00');
+// ── Get Wallet Balance ────────────────────────────────────────────────────────
 
-/**
- * Charges the sub-account wallet the configured service fee per print order.
- *
- * @param {string} locationId   - GHL sub-account location ID
- * @param {string} companyId    - GHL agency company ID
- * @param {string} printJobId   - Lulu print job ID, used as the unique eventId
- * @param {string} bookTitle    - Human-readable book title for the charge description
- * @returns {Promise<{success: boolean, chargeId: string}>}
- */
-async function chargeOrderServiceFee(locationId, companyId, printJobId, bookTitle) {
-  if (!APP_ID) {
-    throw new Error('GHL_APP_ID is not set in environment variables.');
-  }
-  if (!METER_ID) {
-    throw new Error('GHL_BILLING_METER_ID is not set in environment variables.');
-  }
-
-  // Retrieve and refresh the sub-account token so the charge is posted
-  // against the correct location's wallet.
-  const tokens = await getTokensForLocation(locationId);
-  if (!tokens) {
-    throw new Error(`No OAuth tokens found for locationId: ${locationId}`);
-  }
-  const accessToken = await refreshTokenIfNeeded(locationId, tokens);
-
-  const eventId = `print_job_${printJobId}_${Date.now()}`;
-  const description = `LiteraryApp Print Service Fee - "${bookTitle}" (Print Job: ${printJobId})`;
-
-  const payload = {
-    appId: APP_ID,
-    meterId: METER_ID,
-    eventId,
+async function getWalletBalance(locationId) {
+  const wallet = await db.getWallet(locationId);
+  return {
     locationId,
-    companyId,
-    description,
-    units: 1,
-    price: SERVICE_FEE,
-    eventTime: new Date().toISOString(),
+    balance: wallet?.balance || 0,
+    currency: 'USD',
+    lastUpdated: wallet?.updated_at || null,
   };
-
-  try {
-    const response = await axios.post(
-      `${GHL_API_BASE}/marketplace/billing/charges`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          Version: '2021-07-28',
-        },
-      }
-    );
-
-    if (response.status === 201 && response.data.success) {
-      console.log(
-        `[walletService] Charged $${SERVICE_FEE} to locationId=${locationId}, chargeId=${response.data.chargeId}`
-      );
-      return { success: true, chargeId: response.data.chargeId };
-    }
-
-    throw new Error(`Unexpected wallet charge response: ${JSON.stringify(response.data)}`);
-  } catch (err) {
-    const detail = err.response ? JSON.stringify(err.response.data) : err.message;
-    console.error(`[walletService] Charge failed for locationId=${locationId}: ${detail}`);
-    throw new Error(`Wallet charge failed: ${detail}`);
-  }
 }
 
-module.exports = { chargeOrderServiceFee };
+// ── Add Funds to Wallet ──────────────────────────────────────────────────────
+
+async function addFunds(locationId, amount, description = 'Manual deposit') {
+  const wallet = await db.getWallet(locationId);
+  const currentBalance = wallet?.balance || 0;
+  const newBalance = currentBalance + (parseFloat(amount) || 0);
+
+  await db.upsertWallet({
+    locationId,
+    balance: newBalance,
+    lastTransaction: {
+      type: 'deposit',
+      amount: parseFloat(amount) || 0,
+      description,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  return {
+    locationId,
+    previousBalance: currentBalance,
+    depositAmount: parseFloat(amount) || 0,
+    newBalance,
+    transaction: {
+      type: 'deposit',
+      amount: parseFloat(amount) || 0,
+      description,
+    },
+  };
+}
+
+// ── Charge Wallet for Full Order Cost ────────────────────────────────────────
+
+async function chargeOrderFullCost({
+  locationId,
+  contactId,
+  bookTitle,
+  retailPrice,
+  printCost,
+  shippingCost,
+  internalShippingCost,
+  markup,
+  agencyFee = 0,
+  fulfillmentFee = 0,
+  totalCharge,
+}) {
+  const wallet = await db.getWallet(locationId);
+  const currentBalance = wallet?.balance || 0;
+
+  if (currentBalance < totalCharge) {
+    throw new Error(
+      `Insufficient wallet balance. Required: $${totalCharge.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`
+    );
+  }
+
+  const newBalance = currentBalance - totalCharge;
+  const chargeId = uuidv4();
+
+  await db.upsertWallet({
+    locationId,
+    balance: newBalance,
+    lastTransaction: {
+      type: 'charge',
+      amount: totalCharge,
+      description: `Order: ${bookTitle}`,
+      timestamp: new Date().toISOString(),
+      details: {
+        contactId,
+        retailPrice,
+        printCost,
+        shippingCost,
+        internalShippingCost,
+        markup,
+        agencyFee,
+        fulfillmentFee,
+        totalCharge,
+      },
+    },
+  });
+
+  return {
+    chargeId,
+    locationId,
+    previousBalance: currentBalance,
+    chargeAmount: totalCharge,
+    newBalance,
+    breakdown: {
+      retailPrice,
+      printCost,
+      shippingCost,
+      internalShippingCost,
+      markup,
+      agencyFee,
+      fulfillmentFee,
+    },
+  };
+}
+
+// ── Refund Wallet ─────────────────────────────────────────────────────────────
+
+async function refundOrder(locationId, amount, orderId, reason = 'Refund') {
+  const wallet = await db.getWallet(locationId);
+  const currentBalance = wallet?.balance || 0;
+  const newBalance = currentBalance + (parseFloat(amount) || 0);
+
+  await db.upsertWallet({
+    locationId,
+    balance: newBalance,
+    lastTransaction: {
+      type: 'refund',
+      amount: parseFloat(amount) || 0,
+      description: `Refund for order ${orderId}: ${reason}`,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  return {
+    locationId,
+    previousBalance: currentBalance,
+    refundAmount: parseFloat(amount) || 0,
+    newBalance,
+    orderId,
+    reason,
+  };
+}
+
+const { v4: uuidv4 } = require('uuid');
+
+module.exports = {
+  getWalletBalance,
+  addFunds,
+  chargeOrderFullCost,
+  refundOrder,
+};

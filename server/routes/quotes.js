@@ -2,22 +2,8 @@
 const express = require('express');
 const router  = express.Router();
 const lulu    = require('../services/luluService');
-const {
-  TRIM_LABELS,
-  INK_LABELS,
-  QUALITY_LABELS,
-  BINDING_LABELS,
-  PAPER_LABELS,
-  SHIPPING_LABELS,
-  COMPAT_TREE,
-  BINDING_INK_PAPERS,
-  TRIM_BINDINGS,
-  TRIM_INK_BINDINGS,
-  VALID_SKUS,
-  buildPodPackageId,
-  validatePodPackageId,
-  autoCorrectPodPackageId,
-} = require('../config/luluConstants');
+const bookOptions = require('../services/bookOptions');
+const flatShipping = require('../services/flatShipping');
 
 // ── Helper: Parse structured Lulu error into a human-readable message ─────────
 function parseLuluError(err) {
@@ -70,29 +56,44 @@ function parseLuluError(err) {
 // ── GET /quotes/options ────────────────────────────────────────────────────────
 // Returns the full compatibility matrix and human-readable labels so the
 // frontend can build a fully dynamic, validated UI without hardcoding values.
+// This endpoint is shared by BOTH the Quote Calculator and Book Setup pages.
 router.get('/options', (req, res) => {
+  res.json(bookOptions.getFullOptions());
+});
+
+// ── GET /quotes/options/available ─────────────────────────────────────────────
+// Progressive selection: returns available options at each step based on
+// the user's previous selections. Used by both Quote Calculator and Book Setup.
+//
+// Query params (all optional):
+//   trim, ink, quality, binding
+//
+// Returns the next step's available options based on what's already selected.
+router.get('/options/available', (req, res) => {
+  const { trim, ink, quality, binding } = req.query;
+
+  // Determine what's available at the next step
+  const availableInks = ink ? undefined : bookOptions.getAvailableInks(trim);
+  const availableQualities = (ink && quality === undefined) ? bookOptions.getAvailableQualities(trim, ink) : undefined;
+  const availableBindings = (ink && quality && binding === undefined) ? bookOptions.getAvailableBindings(trim, ink, quality) : undefined;
+  const availablePapers = (ink && quality && binding) ? bookOptions.getAvailablePapers(trim, ink, quality, binding) : undefined;
+  const availableCoverFinishes = binding ? bookOptions.getAvailableCoverFinishes(binding) : undefined;
+
   res.json({
-    // Human-readable labels for every option
+    availableInks,
+    availableQualities,
+    availableBindings,
+    availablePapers: availablePapers ? availablePapers.map(code => ({
+      code,
+      label: bookOptions.PAPER_LABELS[code] || code,
+    })) : undefined,
+    availableCoverFinishes,
     labels: {
-      trim:     TRIM_LABELS,
-      ink:      INK_LABELS,
-      quality:  QUALITY_LABELS,
-      binding:  BINDING_LABELS,
-      paper:    PAPER_LABELS,
-      shipping: SHIPPING_LABELS,
+      trim:     bookOptions.TRIM_LABELS,
+      ink:      bookOptions.INK_LABELS,
+      quality:  bookOptions.QUALITY_LABELS,
+      binding:  bookOptions.BINDING_LABELS,
     },
-    // Full compatibility tree: COMPAT_TREE[trim][ink][quality][binding] = [papers]
-    compatTree:       COMPAT_TREE,
-    // Quick paper lookup by (binding, ink): BINDING_INK_PAPERS[binding][ink] = [papers]
-    bindingInkPapers: BINDING_INK_PAPERS,
-    // Per-trim available bindings (ink-independent)
-    trimBindings:     TRIM_BINDINGS,
-    // Per-trim, per-ink available bindings
-    trimInkBindings:  TRIM_INK_BINDINGS,
-    // Total valid SKUs in catalog
-    totalValidSkus:   VALID_SKUS.size,
-    // Shipping options as array for easy iteration
-    shippingOptions: Object.entries(SHIPPING_LABELS).map(([id, label]) => ({ id, label })),
   });
 });
 
@@ -102,14 +103,16 @@ router.get('/options', (req, res) => {
 router.get('/validate-sku', (req, res) => {
   const { sku } = req.query;
   if (!sku) return res.status(400).json({ error: 'sku query parameter is required' });
-  const result = validatePodPackageId(sku);
+  const result = bookOptions.validatePodPackageId(sku);
   res.json({ sku, ...result });
 });
 
 // ── POST /quotes/calculate ────────────────────────────────────────────────────
-// Calculate a print cost quote using the Lulu print-job-cost-calculations API.
+// Calculate a print cost quote using the Lulu print-job-cost-calculations API
+// for PRINTING cost only, then apply FLAT shipping rates instead of live
+// Lulu shipping costs.
 //
-// Request body (option A — individual components):
+// Request body:
 // {
 //   trim:          string  (e.g. "0600X0900")
 //   ink:           string  ("BW" | "FC")
@@ -119,17 +122,8 @@ router.get('/validate-sku', (req, res) => {
 //   coverFinish:   string  (e.g. "MXX" | "GXX" | "MNG")  — optional, default "MXX"
 //   pageCount:     number  (required, min 2)
 //   quantity:      number  (optional, default 1)
-//   shippingLevel: string  (optional, default "MAIL")
-//   shippingAddress: object (optional — uses a US default if omitted)
-// }
-//
-// Request body (option B — pre-built SKU):
-// {
-//   podPackageId:  string  (full dotted SKU, e.g. "0600X0900.BW.STD.PB.060UW444.MXX")
-//   pageCount:     number
-//   quantity:      number
-//   shippingLevel: string
-//   shippingAddress: object
+//   countryCode:   string  (optional, default "US") — used to determine flat shipping rate
+//   shippingAddress: object (optional — country_code used for flat rate lookup)
 // }
 router.post('/calculate', async (req, res) => {
   const {
@@ -138,7 +132,7 @@ router.post('/calculate', async (req, res) => {
     coverFinish = 'MXX',
     pageCount,
     quantity    = 1,
-    shippingLevel = 'MAIL',
+    countryCode = 'US',
     shippingAddress = null,
   } = req.body;
 
@@ -162,16 +156,16 @@ router.post('/calculate', async (req, res) => {
         error: `Missing required fields: ${missing.join(', ')}. Either provide podPackageId or all individual components (trim, ink, quality, binding, paper).`,
       });
     }
-    resolvedPodPackageId = buildPodPackageId({ trim, ink, quality, binding, paper, coverFinish });
+    resolvedPodPackageId = bookOptions.buildPodPackageId({ trim, ink, quality, binding, paper, coverFinish });
   }
 
   // Validate the SKU against the spec sheet
-  const validation = validatePodPackageId(resolvedPodPackageId);
+  const validation = bookOptions.validatePodPackageId(resolvedPodPackageId);
   if (!validation.valid) {
     // Attempt auto-correction
     let correctionHint = null;
     if (!rawPodPackageId) {
-      const corrected = autoCorrectPodPackageId({ trim, ink, quality, binding, paper, coverFinish });
+      const corrected = bookOptions.autoCorrectPodPackageId({ trim, ink, quality, binding, paper, coverFinish });
       if (corrected) {
         const cp = corrected.split('.');
         correctionHint = {
@@ -197,52 +191,56 @@ router.post('/calculate', async (req, res) => {
     });
   }
 
-  // ── 3. Validate shipping level ──────────────────────────────────────────────
-  const validShippingLevels = Object.keys(SHIPPING_LABELS);
-  const resolvedShippingLevel = shippingLevel || 'MAIL';
-  if (!validShippingLevels.includes(resolvedShippingLevel)) {
-    return res.status(400).json({
-      error:        `Invalid shippingLevel "${resolvedShippingLevel}".`,
-      validOptions: validShippingLevels,
-    });
-  }
+  // ── 3. Determine the effective country code ─────────────────────────────────
+  // Use countryCode from body, or extract from shippingAddress, default to US
+  const resolvedCountryCode = countryCode
+    || shippingAddress?.country_code
+    || shippingAddress?.country
+    || 'US';
 
-  // ── 4. Build a fully-formed shipping address ────────────────────────────────
-  // The Lulu API requires: street1, city, country_code, postcode,
-  // state_code (for US/CA/AU etc.), and phone_number.
-  // If the caller omits any field we fall back to a safe US default so the
-  // API never returns a shipping_address validation error.
-  const addr = shippingAddress || {};
-  const resolvedAddress = {
-    street1:      addr.street1      || addr.address1   || '123 Main St',
-    city:         addr.city                            || 'Austin',
-    state_code:   addr.state_code   || addr.state      || 'TX',
-    country_code: addr.country_code || addr.country    || 'US',
-    postcode:     addr.postcode     || addr.postal_code || addr.zip || '78701',
-    phone_number: addr.phone_number || addr.phone      || '5125550100',
-  };
-  if (addr.street2) resolvedAddress.street2 = addr.street2;
-
-  // ── 5. Call the Lulu API ────────────────────────────────────────────────────
+  // ── 4. Call the Lulu API for PRINTING COST only ─────────────────────────────
+  // We still call Lulu to get the printing cost, but we use a default address
+  // since we don't need live shipping rates anymore.
   const qty = Math.max(1, parseInt(quantity) || 1);
-  console.log(`[Quotes] Calculating cost for ${resolvedPodPackageId} × ${qty} copies, ${parsedPageCount} pages, ${resolvedShippingLevel}`);
+
+  // Default address for Lulu API call (shipping cost is ignored — we use flat rates)
+  const defaultAddress = shippingAddress || {
+    street1: '123 Main St',
+    city: 'Austin',
+    state_code: 'TX',
+    country_code: 'US',
+    postcode: '78701',
+    phone_number: '5125550100',
+  };
+
+  console.log(`[Quotes] Calculating cost for ${resolvedPodPackageId} × ${qty} copies, ${parsedPageCount} pages, flat shipping to ${resolvedCountryCode}`);
 
   try {
+    // Call Lulu for printing cost only — shipping cost returned by Lulu is ignored
     const costData = await lulu.calculatePrintCost(
       resolvedPodPackageId,
       parsedPageCount,
-      resolvedShippingLevel,
-      resolvedAddress,
+      'MAIL',  // Shipping level doesn't matter for print cost
+      defaultAddress,
       qty
     );
 
-    const unitPrintCost    = parseFloat(costData.unitPrintCost    || 0);
-    const totalPrintCost   = parseFloat(costData.totalPrintCost   || 0);
-    const shippingCost     = parseFloat(costData.shippingCost     || 0);
-    const fulfillmentFee   = parseFloat(costData.fulfillmentFee   || 0.75);
-    const totalCost        = parseFloat(costData.totalCost        || 0);
-    const totalTax         = parseFloat(costData.totalTax         || 0);
-    const totalCostInclTax = parseFloat(costData.totalCostInclTax || totalCost);
+    const unitPrintCost  = parseFloat(costData.unitPrintCost  || 0);
+    const totalPrintCost = parseFloat(costData.totalPrintCost || 0);
+    const fulfillmentFee = parseFloat(costData.fulfillmentFee || 0.75);
+    const totalTax       = parseFloat(costData.totalTax       || 0);
+    const totalCostInclTax = parseFloat(costData.totalCostInclTax || 0);
+
+    // ── 5. Apply flat shipping rates ──────────────────────────────────────────
+    const shippingBreakdown = flatShipping.getShippingBreakdown(resolvedCountryCode);
+    const customerShippingCost = shippingBreakdown.customerShipping;
+    const internalShippingCost = shippingBreakdown.internalShipping;
+
+    // Total cost = printing + flat shipping + fulfillment fee
+    const totalCost = totalPrintCost + (customerShippingCost * qty) + fulfillmentFee;
+    const totalCostInclTaxFinal = totalCostInclTax > 0
+      ? totalCostInclTax
+      : totalCost;
 
     // Parse components from the resolved SKU for the response
     const skuParts = resolvedPodPackageId.split('.');
@@ -258,27 +256,30 @@ router.post('/calculate', async (req, res) => {
         paper:       resPaper,
         coverFinish: resFinish,
         labels: {
-          trim:     TRIM_LABELS[resTrim]       || resTrim,
-          ink:      INK_LABELS[resInk]         || resInk,
-          quality:  QUALITY_LABELS[resQuality] || resQuality,
-          binding:  BINDING_LABELS[resBinding] || resBinding,
-          paper:    PAPER_LABELS[resPaper]     || resPaper,
-          shipping: SHIPPING_LABELS[resolvedShippingLevel] || resolvedShippingLevel,
+          trim:     bookOptions.TRIM_LABELS[resTrim]       || resTrim,
+          ink:      bookOptions.INK_LABELS[resInk]         || resInk,
+          quality:  bookOptions.QUALITY_LABELS[resQuality] || resQuality,
+          binding:  bookOptions.BINDING_LABELS[resBinding] || resBinding,
+          paper:    bookOptions.PAPER_LABELS[resPaper]     || resPaper,
         },
       },
-      pageCount:       parsedPageCount,
-      quantity:        qty,
-      shippingLevel:   resolvedShippingLevel,
+      pageCount:           parsedPageCount,
+      quantity:            qty,
+      // Printing cost from Lulu
       unitPrintCost,
       totalPrintCost,
-      shippingCost,
+      // Flat shipping (customer-facing — NO live Lulu shipping)
+      shippingCost:        customerShippingCost,
+      internalShippingCost, // Not shown to customer
+      shippingRateLabel:   shippingBreakdown.rateLabel,
+      isDomesticShipping:  shippingBreakdown.isDomestic,
+      // Fulfillment and totals
       fulfillmentFee,
       totalCost,
       totalTax,
-      totalCostInclTax,
-      currency:        costData.currency || 'USD',
-      discounts:       costData.discounts || [],
-      ...(process.env.NODE_ENV !== 'production' && { _raw: costData.raw }),
+      totalCostInclTax:    totalCostInclTaxFinal,
+      currency:            costData.currency || 'USD',
+      discounts:           costData.discounts || [],
     });
 
   } catch (err) {
@@ -294,39 +295,24 @@ router.post('/calculate', async (req, res) => {
 });
 
 // ── POST /quotes/shipping-options ─────────────────────────────────────────────
-// Proxy to the Lulu live shipping options endpoint.
-// Requires: countryCode, pageCount, podPackageId
-router.post('/shipping-options', async (req, res) => {
-  const { countryCode, pageCount, podPackageId, quantity, stateCode } = req.body;
-
-  if (!countryCode || !pageCount || !podPackageId) {
-    return res.status(400).json({
-      error: 'countryCode, pageCount, and podPackageId are required.',
-    });
-  }
-
-  const validation = validatePodPackageId(podPackageId);
-  if (!validation.valid) {
-    return res.status(400).json({ error: `Invalid pod_package_id: ${validation.reason}` });
-  }
-
-  try {
-    const options = await lulu.getShippingOptions({
-      countryCode,
-      stateCode:  stateCode || '',
-      pageCount:  parseInt(pageCount),
-      podPackageId,
-      quantity:   parseInt(quantity) || 1,
-    });
-    res.json({ options });
-  } catch (err) {
-    const parsed = parseLuluError(err);
-    console.error('[Quotes] Shipping options error:', parsed.message);
-    res.status(parsed.status >= 400 && parsed.status < 600 ? parsed.status : 500).json({
-      error:  'Failed to retrieve shipping options.',
-      detail: parsed.message,
-    });
-  }
+// Returns the flat shipping options (no longer calls Lulu live API).
+router.post('/shipping-options', (req, res) => {
+  const { countryCode = 'US' } = req.body;
+  const breakdown = flatShipping.getShippingBreakdown(countryCode);
+  res.json({
+    options: [{
+      id: 'STANDARD',
+      label: breakdown.isDomestic ? 'US Domestic Shipping' : 'International Shipping',
+      description: breakdown.isDomestic ? '5–10 business days' : '10–21 business days',
+      cost: breakdown.customerShipping,
+      internalCost: breakdown.internalShipping,
+      isDomestic: breakdown.isDomestic,
+    }],
+    rates: {
+      usDomestic: bookOptions.SHIPPING_RATES.US_DOMESTIC,
+      international: bookOptions.SHIPPING_RATES.INTERNATIONAL,
+    },
+  });
 });
 
 module.exports = router;
