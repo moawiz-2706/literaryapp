@@ -7,6 +7,7 @@ const db = require('../db/database');
 const ghl = require('../services/ghlService');
 const lulu = require('../services/luluService');
 const storage = require('../services/storageService');
+const flatShipping = require('../services/flatShipping');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
 
@@ -115,9 +116,12 @@ router.post('/upload', upload.fields([
     });
 
   } catch (err) {
-    console.error('[Books] Upload error:', err.response?.data || err.message);
+    const detail = err.response
+      ? `[${err.response.status}] ${JSON.stringify(err.response.data || {}).substring(0, 500)} at ${err.config?.url || 'unknown'}`
+      : err.message;
+    console.error('[Books] Upload error:', err.message, '\n  URL:', err.config?.url, '\n  Status:', err.response?.status, '\n  Data:', JSON.stringify(err.response?.data || {}).substring(0, 500));
     await db.updateBook(bookId, { status: 'Error', validationError: err.message }).catch(() => {});
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, detail });
   }
 });
 
@@ -162,7 +166,6 @@ router.get('/:bookId/validation-status', async (req, res) => {
       if (errors.length > 0) {
         const errMsg = errors.join(' | ');
         await db.updateBook(bookId, { status: 'Error', validationError: errMsg });
-        // Write Error status to GHL custom field so Workflow 4 fires
         if (authorContactId) {
           await ghl.writeBookCustomFields(book.location_id, authorContactId, book.book_number, {
             bookStatus: 'Error'
@@ -171,19 +174,18 @@ router.get('/:bookId/validation-status', async (req, res) => {
         return res.json({ bookId, status: 'Error', errors });
       }
 
-      // Validation passed — fetch print cost from Lulu
+      // Validation passed — fetch print cost from Lulu (printing cost only)
       let printCost = 0;
-      let shippingCost = 0;
       try {
         const costData = await lulu.calculatePrintCost(book.pod_package_id, book.page_count || 100, 'MAIL');
         printCost = costData.printCost;
-        shippingCost = costData.shippingCost;
       } catch (costErr) {
         console.warn('[Books] Print cost fetch warning:', costErr.message);
       }
 
       // Royalty formula: Retail - Print Cost - Flat-Rate Shipping = Author Profit
-      const flatRateShipping = 5.95;
+      // Use US domestic flat rate as the default for profit estimation
+      const flatRateShipping = flatShipping.getCustomerShippingCost('US');
       const authorProfit = Math.max(0, (book.retail_price || 0) - printCost - flatRateShipping);
 
       // Create GHL product with Lulu metadata embedded
@@ -207,7 +209,6 @@ router.get('/:bookId/validation-status', async (req, res) => {
 
       await db.updateBook(bookId, { status: 'Ready', printCost, authorProfit, ghlProductId });
 
-      // Write Ready status to GHL custom fields — this triggers Workflow 2 (Book Setup Complete)
       if (authorContactId) {
         await ghl.writeBookCustomFields(book.location_id, authorContactId, book.book_number, {
           bookStatus: 'Ready',
