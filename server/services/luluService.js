@@ -130,6 +130,34 @@ async function getCoverValidationStatus(validationId) {
   return resp.data;
 }
 
+// ── Cover Dimension Calculation ──────────────────────────────────────────────
+// Calculates the exact cover width and height required for a given pod_package_id
+// and page count. Use this to pre-validate cover PDFs before submission.
+
+async function calculateCoverDimensions(podPackageId, pageCount, unit = 'pt') {
+  const token = await getLuluToken();
+  try {
+    const resp = await axios.post(
+      `${LULU_BASE}/calculate-cover-dimensions/`,
+      { pod_package_id: podPackageId, interior_page_count: pageCount, unit },
+      { headers: headers(token) }
+    );
+    return resp.data;
+  } catch (err) {
+    if (err.response?.status === 401) {
+      console.warn('[Lulu] 401 on calculate-cover-dimensions, forcing token refresh');
+      const newToken = await getLuluToken(true);
+      const resp = await axios.post(
+        `${LULU_BASE}/calculate-cover-dimensions/`,
+        { pod_package_id: podPackageId, interior_page_count: pageCount, unit },
+        { headers: headers(newToken) }
+      );
+      return resp.data;
+    }
+    throw err;
+  }
+}
+
 // ── Print Cost Calculation ────────────────────────────────────────────────────
 // Calls the Lulu /print-job-cost-calculations/ endpoint.
 //
@@ -367,6 +395,7 @@ module.exports = {
   validateCoverFile,
   getInteriorValidationStatus,
   getCoverValidationStatus,
+  calculateCoverDimensions,
   calculatePrintCost,
   calculatePrintCostOnly,
   getShippingOptions,

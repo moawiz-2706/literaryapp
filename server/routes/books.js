@@ -88,10 +88,29 @@ router.post('/upload', upload.fields([
       }).catch(err => console.warn('[Books] GHL field write warning:', err.message));
     }
 
-    // 5. Submit files to Lulu for validation (async — client polls for status)
+    // 5. Pre-validate cover dimensions against Lulu's expected dimensions
+    const parsedPageCount = parseInt(pageCount) || 0;
+    if (parsedPageCount < 2) {
+      throw new Error(`Page count must be at least 2 (received: ${pageCount})`);
+    }
+    if (parsedPageCount % 2 !== 0) {
+      throw new Error(`Page count must be even for perfect bound books (received: ${parsedPageCount}). Please add blank pages to make it even.`);
+    }
+
+    // Get expected cover dimensions from Lulu for pre-validation
+    let expectedCover = null;
+    try {
+      expectedCover = await lulu.calculateCoverDimensions(podPackageId, parsedPageCount);
+      console.log('[Books] Expected cover dimensions from Lulu:', JSON.stringify(expectedCover));
+    } catch (dimErr) {
+      console.warn('[Books] Cover dimension calculation failed:', dimErr.message);
+      // Continue anyway — Lulu will validate during file submission
+    }
+
+    // 6. Submit files to Lulu for validation (async — client polls for status)
     const [interiorVal, coverVal] = await Promise.all([
       lulu.validateInteriorFile(interiorResult.url, podPackageId),
-      lulu.validateCoverFile(coverResult.url, podPackageId, parseInt(pageCount) || null)
+      lulu.validateCoverFile(coverResult.url, podPackageId, parsedPageCount)
     ]);
 
     await db.updateBook(bookId, {
