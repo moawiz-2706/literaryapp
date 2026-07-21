@@ -45,7 +45,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function validateInteriorFile(pdfUrl, podPackageId) {
   const token = await getLuluToken();
   const resp = await axios.post(
-    `${LULU_BASE}/files/interior/`,
+    `${LULU_BASE}/validate-interior/`,
     { source_url: pdfUrl, pod_package_id: podPackageId },
     { headers: headers(token) }
   );
@@ -55,7 +55,7 @@ async function validateInteriorFile(pdfUrl, podPackageId) {
 async function validateCoverFile(pdfUrl, podPackageId) {
   const token = await getLuluToken();
   const resp = await axios.post(
-    `${LULU_BASE}/files/cover/`,
+    `${LULU_BASE}/validate-cover/`,
     { source_url: pdfUrl, pod_package_id: podPackageId },
     { headers: headers(token) }
   );
@@ -64,13 +64,13 @@ async function validateCoverFile(pdfUrl, podPackageId) {
 
 async function getInteriorValidationStatus(validationId) {
   const token = await getLuluToken();
-  const resp = await axios.get(`${LULU_BASE}/files/interior/${validationId}/`, { headers: headers(token) });
+  const resp = await axios.get(`${LULU_BASE}/validate-interior/${validationId}/`, { headers: headers(token) });
   return resp.data;
 }
 
 async function getCoverValidationStatus(validationId) {
   const token = await getLuluToken();
-  const resp = await axios.get(`${LULU_BASE}/files/cover/${validationId}/`, { headers: headers(token) });
+  const resp = await axios.get(`${LULU_BASE}/validate-cover/${validationId}/`, { headers: headers(token) });
   return resp.data;
 }
 
@@ -291,6 +291,20 @@ function mapLuluStatusToLocal(luluStatus) {
   return map[luluStatus] || luluStatus;
 }
 
+// ── Print Cost Only (ignores Lulu shipping) ──────────────────────────────────
+// Calls the same Lulu endpoint but explicitly ignores the shipping_cost from
+// the response. The caller is expected to use flat shipping rates instead.
+
+async function calculatePrintCostOnly(podPackageId, pageCount, shippingLevel = 'MAIL', shippingAddress = null, quantity = 1) {
+  const result = await calculatePrintCost(podPackageId, pageCount, shippingLevel, shippingAddress, quantity);
+  // Strip out the live shipping cost — callers use flat rates
+  return {
+    ...result,
+    shippingCost: 0,
+    totalCost: result.totalPrintCost + result.fulfillmentFee,
+  };
+}
+
 module.exports = {
   getLuluToken,
   validateInteriorFile,
@@ -298,6 +312,7 @@ module.exports = {
   getInteriorValidationStatus,
   getCoverValidationStatus,
   calculatePrintCost,
+  calculatePrintCostOnly,
   getShippingOptions,
   createPrintJob,
   getPrintJobStatus,
