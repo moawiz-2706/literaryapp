@@ -157,10 +157,18 @@ router.get('/:bookId/validation-status', async (req, res) => {
     if (interiorDone && coverDone) {
       const errors = [];
       if (['ERROR', 'REJECTED'].includes(interior.status)) {
-        errors.push(`Interior PDF: ${interior.error_message || 'Validation failed'}`);
+        const detail = interior.errors
+          ? `Interior PDF: ${JSON.stringify(interior.errors)}`
+          : `Interior PDF: ${interior.error_message || interior.status || 'Validation failed'}`;
+        console.log('[Books] Interior validation error:', JSON.stringify(interior));
+        errors.push(detail);
       }
       if (['ERROR', 'REJECTED'].includes(cover.status)) {
-        errors.push(`Cover PDF: ${cover.error_message || 'Validation failed'}`);
+        const detail = cover.errors
+          ? `Cover PDF: ${JSON.stringify(cover.errors)}`
+          : `Cover PDF: ${cover.error_message || cover.status || 'Validation failed'}`;
+        console.log('[Books] Cover validation error:', JSON.stringify(cover));
+        errors.push(detail);
       }
 
       if (errors.length > 0) {
