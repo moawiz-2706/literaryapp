@@ -1,5 +1,29 @@
+/**
+ * BookOptionsForm.jsx
+ *
+ * Shared progressive book options selection component.
+ * Used by BOTH the Quote Calculator and Book Setup pages.
+ *
+ * Progressive selection flow (matches the COMPAT_TREE structure):
+ *   Step 1: Trim Size → Step 2: Ink → Step 3: Quality → Step 4: Binding
+ *   Step 5: Paper → Step 6: Cover Finish
+ *
+ * This component works ENTIRELY client-side using the options data passed
+ * as props. No API calls are needed for the progressive selection — it
+ * uses the compatibility tree (compatTree) directly.
+ *
+ * Props:
+ *   fullOptions: object - The full options object from the API, including:
+ *     - labels: { trim, ink, quality, binding, paper }
+ *     - compatTree: the nested compatibility tree
+ *     - shippingRates: { usDomestic, international }
+ *     - coverFinishOptions: array of cover finish options
+ *   onChange: function(components) - Called with { trim, ink, quality, binding, paper, coverFinish, podPackageId }
+ *   initialComponents: object - Optional pre-selected values (for edit mode)
+ *   compact: boolean - Use compact layout (for Book Setup page)
+ */
+
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchAvailableOptions, buildPodPackageId } from '../services/optionsService';
 
 const css = `
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -32,9 +56,8 @@ const css = `
   .bof-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .bof-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .bof-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-  .bof-grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
   @media (max-width: 640px) {
-    .bof-grid-4, .bof-grid-5, .bof-grid-6 { grid-template-columns: repeat(2, 1fr); }
+    .bof-grid-4, .bof-grid-5 { grid-template-columns: repeat(2, 1fr); }
   }
 
   .bof-step-complete {
@@ -93,197 +116,277 @@ function StepComplete({ label, value }) {
   );
 }
 
-export default function BookOptionsForm({ onChange, initialComponents, labels, compact }) {
-  // Component state
+/**
+ * Build pod_package_id from components.
+ */
+function buildPodPackageId({ trim, ink, quality, binding, paper, coverFinish = 'MXX' }) {
+  return `${trim}.${ink}.${quality}.${binding}.${paper}.${coverFinish}`;
+}
+
+/**
+ * Get available inks for a given trim (from compatTree).
+ */
+function getAvailableInks(trim, compatTree, inkLabels) {
+  if (!trim || !compatTree[trim]) return Object.keys(inkLabels);
+  return Object.keys(compatTree[trim]);
+}
+
+/**
+ * Get available qualities for a given trim + ink.
+ */
+function getAvailableQualities(trim, ink, compatTree, qualityLabels) {
+  if (!trim || !ink || !compatTree[trim] || !compatTree[trim][ink]) {
+    return Object.keys(qualityLabels);
+  }
+  return Object.keys(compatTree[trim][ink]);
+}
+
+/**
+ * Get available bindings for a given trim + ink + quality.
+ */
+function getAvailableBindings(trim, ink, quality, compatTree, bindingLabels) {
+  if (!trim || !ink || !quality) {
+    return Object.keys(bindingLabels);
+  }
+  const qualityNode = compatTree[trim]?.[ink]?.[quality];
+  if (!qualityNode) return Object.keys(bindingLabels);
+  return Object.keys(qualityNode);
+}
+
+/**
+ * Get available papers for a given trim + ink + quality + binding.
+ */
+function getAvailablePapers(trim, ink, quality, binding, compatTree, paperLabels) {
+  if (!trim || !ink || !quality || !binding) {
+    return Object.keys(paperLabels);
+  }
+  const papers = compatTree[trim]?.[ink]?.[quality]?.[binding];
+  return papers || Object.keys(paperLabels);
+}
+
+/**
+ * Get available cover finishes for a given binding.
+ */
+function getAvailableCoverFinishes(binding) {
+  const base = [
+    { code: 'MXX', label: 'Matte', description: 'Flat finish — elegant, reduced glare' },
+    { code: 'GXX', label: 'Gloss', description: 'Shiny finish — vibrant colors' },
+  ];
+  if (binding === 'LW') {
+    const linens = ['BB', 'BG', 'BW', 'FB', 'FG', 'FW', 'GB', 'GG', 'GW', 'NB', 'NG', 'NW', 'RB', 'RG', 'RW', 'TB', 'TG', 'TW'];
+    const baseLabels = { M: 'Matte', G: 'Gloss' };
+    const linenLabels = {
+      B: 'Black', G: 'Gold', W: 'White',
+      F: 'Forest', N: 'Navy', R: 'Red', T: 'Teal',
+    };
+    for (const [baseChar, baseLabel] of Object.entries(baseLabels)) {
+      for (const [linenChar, linenLabel] of Object.entries(linenLabels)) {
+        const code = `${baseChar}${linenChar}`;
+        base.push({
+          code,
+          label: `${baseLabel} — ${linenLabel} Linen`,
+          description: `Linen Wrap with ${baseLabel} lamination and ${linenLabel} linen cloth`,
+        });
+      }
+    }
+  }
+  return base;
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
+export default function BookOptionsForm({ fullOptions, onChange, initialComponents, compact }) {
+  // Extract labels and compat tree from fullOptions
+  const labels = fullOptions?.labels || {};
+  const compatTree = fullOptions?.compatTree || {};
+
+  // ── Selection state ──────────────────────────────────────────────────────
   const [trim, setTrim] = useState(initialComponents?.trim || '');
-  const [binding, setBinding] = useState(initialComponents?.binding || '');
   const [ink, setInk] = useState(initialComponents?.ink || '');
   const [quality, setQuality] = useState(initialComponents?.quality || '');
+  const [binding, setBinding] = useState(initialComponents?.binding || '');
   const [paper, setPaper] = useState(initialComponents?.paper || '');
   const [coverFinish, setCoverFinish] = useState(initialComponents?.coverFinish || 'MXX');
 
-  // Available options at each step
-  const [availableInks, setAvailableInks] = useState(null);
-  const [availableQualities, setAvailableQualities] = useState(null);
-  const [availableBindings, setAvailableBindings] = useState(null);
-  const [availablePapers, setAvailablePapers] = useState(null);
-  const [availableCoverFinishes, setAvailableCoverFinishes] = useState(null);
+  // ── Available options at each step (computed client-side) ───────────────
+  const [availableInks, setAvailableInks] = useState([]);
+  const [availableQualities, setAvailableQualities] = useState([]);
+  const [availableBindings, setAvailableBindings] = useState([]);
+  const [availablePapers, setAvailablePapers] = useState([]);
+  const [availableCoverFinishes, setAvailableCoverFinishes] = useState([]);
 
-  // Current step (1-6)
-  const [currentStep, setCurrentStep] = useState(initialComponents?.trim ? 6 : 1);
+  // ── Current step (1 = trim, 7 = all done) ──────────────────────────────
+  const [currentStep, setCurrentStep] = useState(1);
 
-  // Notify parent of changes
-  const emitChange = useCallback((newState) => {
-    if (onChange) {
-      onChange({
-        trim: newState.trim || trim,
-        binding: newState.binding || binding,
-        ink: newState.ink || ink,
-        quality: newState.quality || quality,
-        paper: newState.paper || paper,
-        coverFinish: newState.coverFinish || coverFinish,
-        podPackageId: buildPodPackageId({
-          trim: newState.trim || trim,
-          ink: newState.ink || ink,
-          quality: newState.quality || quality,
-          binding: newState.binding || binding,
-          paper: newState.paper || paper,
-          coverFinish: newState.coverFinish || coverFinish,
-        }),
-      });
+  // ── Notify parent of changes ───────────────────────────────────────────
+  const emitChange = useCallback((updates) => {
+    if (!onChange) return;
+    const newTrim    = updates.trim    ?? trim;
+    const newInk     = updates.ink     ?? ink;
+    const newQuality = updates.quality ?? quality;
+    const newBinding = updates.binding ?? binding;
+    const newPaper   = updates.paper   ?? paper;
+    const newCover   = updates.coverFinish ?? coverFinish;
+
+    onChange({
+      trim:        newTrim,
+      ink:         newInk,
+      quality:     newQuality,
+      binding:     newBinding,
+      paper:       newPaper,
+      coverFinish: newCover,
+      podPackageId: buildPodPackageId({
+        trim:        newTrim,
+        ink:         newInk,
+        quality:     newQuality,
+        binding:     newBinding,
+        paper:       newPaper,
+        coverFinish: newCover,
+      }),
+    });
+  }, [trim, ink, quality, binding, paper, coverFinish, onChange]);
+
+  // ── Update available options based on current selections ────────────────
+  useEffect(() => {
+    if (!trim) {
+      // No trim selected yet — show step 1
+      setCurrentStep(1);
+      return;
     }
-  }, [trim, binding, ink, quality, paper, coverFinish, onChange]);
+    setCurrentStep(2);
 
-  // Load initial options when labels are available
-  useEffect(() => {
-    if (labels?.trim && !trim) {
-      const defaultTrim = '0600X0900';
-      setTrim(defaultTrim);
-      setCurrentStep(2);
-      // Trigger binding availability load
+    // Step 2: Available inks for this trim
+    const inks = getAvailableInks(trim, compatTree, labels.ink || {});
+    setAvailableInks(inks);
+    // Auto-select if only one option
+    if (inks.length === 1 && !ink) {
+      setInk(inks[0]);
     }
-  }, [labels]);
+  }, [trim, compatTree, labels.ink]);
 
-  // When trim changes, load available bindings
   useEffect(() => {
-    if (!trim) return;
-    loadStepOptions({ trim });
-  }, [trim]);
+    if (!trim || !ink) return;
+    setCurrentStep(3);
 
-  // When binding changes, load available inks
-  useEffect(() => {
-    if (!trim || !binding) return;
-    loadStepOptions({ trim, binding });
-  }, [trim, binding]);
-
-  // When ink changes, load available qualities
-  useEffect(() => {
-    if (!trim || !binding || !ink) return;
-    loadStepOptions({ trim, binding, ink });
-  }, [trim, binding, ink]);
-
-  // When quality changes, load available papers
-  useEffect(() => {
-    if (!trim || !binding || !ink || !quality) return;
-    loadStepOptions({ trim, binding, ink, quality });
-  }, [trim, binding, ink, quality]);
-
-  async function loadStepOptions(selections) {
-    try {
-      const result = await fetchAvailableOptions(selections);
-      if (result.availableBindings) {
-        setAvailableBindings(result.availableBindings);
-        setCurrentStep(2);
-      }
-      if (result.availableInks) {
-        setAvailableInks(result.availableInks);
-        setCurrentStep(3);
-      }
-      if (result.availableQualities) {
-        setAvailableQualities(result.availableQualities);
-        setCurrentStep(4);
-      }
-      if (result.availablePapers) {
-        setAvailablePapers(result.availablePapers);
-        setCurrentStep(5);
-      }
-      if (result.availableCoverFinishes) {
-        setAvailableCoverFinishes(result.availableCoverFinishes);
-        setCurrentStep(6);
-      }
-    } catch (err) {
-      console.error('[BookOptionsForm] Failed to load options:', err.message);
+    // Step 3: Available qualities for this trim + ink
+    const qualities = getAvailableQualities(trim, ink, compatTree, labels.quality || {});
+    setAvailableQualities(qualities);
+    if (qualities.length === 1 && !quality) {
+      setQuality(qualities[0]);
     }
-  }
+  }, [trim, ink, compatTree, labels.quality]);
 
-  // Handle initial load when labels arrive
   useEffect(() => {
-    if (!labels?.trim || !trim) return;
-    // Build initial selection key
-    const key = trim;
-    if (labels.trimInkBindings?.[key]) {
-      const bindings = labels.trimInkBindings[key];
-      setAvailableBindings(bindings);
-      setCurrentStep(bindings.length > 0 ? 2 : 1);
+    if (!trim || !ink || !quality) return;
+    setCurrentStep(4);
+
+    // Step 4: Available bindings for this trim + ink + quality
+    const bindings = getAvailableBindings(trim, ink, quality, compatTree, labels.binding || {});
+    setAvailableBindings(bindings);
+    if (bindings.length === 1 && !binding) {
+      setBinding(bindings[0]);
     }
-  }, [labels]);
+  }, [trim, ink, quality, compatTree, labels.binding]);
 
-  // Auto-complete initial state if all components provided
   useEffect(() => {
-    if (initialComponents?.trim && initialComponents?.binding && initialComponents?.ink &&
-        initialComponents?.quality && initialComponents?.paper) {
+    if (!trim || !ink || !quality || !binding) return;
+    setCurrentStep(5);
+
+    // Step 5: Available papers for this trim + ink + quality + binding
+    const papers = getAvailablePapers(trim, ink, quality, binding, compatTree, labels.paper || {});
+    setAvailablePapers(papers);
+    if (papers.length === 1 && !paper) {
+      setPaper(papers[0]);
+    }
+  }, [trim, ink, quality, binding, compatTree, labels.paper]);
+
+  useEffect(() => {
+    if (!binding) return;
+    setCurrentStep(6);
+
+    // Step 6: Available cover finishes for this binding
+    const finishes = getAvailableCoverFinishes(binding);
+    setAvailableCoverFinishes(finishes);
+    // Default to MXX if available
+    if (!coverFinish || coverFinish === 'MXX') {
+      setCoverFinish('MXX');
+    }
+  }, [binding]);
+
+  useEffect(() => {
+    if (trim && ink && quality && binding && paper && coverFinish) {
+      setCurrentStep(7);
+    }
+  }, [trim, ink, quality, binding, paper, coverFinish]);
+
+  // ── Auto-complete from initialComponents ────────────────────────────────
+  useEffect(() => {
+    if (initialComponents?.trim && initialComponents?.binding &&
+        initialComponents?.ink && initialComponents?.quality &&
+        initialComponents?.paper) {
       const { trim: t, binding: b, ink: i, quality: q, paper: p, coverFinish: cf } = initialComponents;
       setTrim(t);
-      setBinding(b);
       setInk(i);
       setQuality(q);
+      setBinding(b);
       setPaper(p);
       setCoverFinish(cf || 'MXX');
-      setCurrentStep(7); // All steps complete
-      // Still load available options for validation
-      loadStepOptions({ trim: t, binding: b, ink: i, quality: q });
     }
   }, [initialComponents]);
 
-  // ── Step Handlers ──────────────────────────────────────────────────────────
+  // ── Step Handlers ──────────────────────────────────────────────────────
 
   function handleTrimSelect(selectedTrim) {
     setTrim(selectedTrim);
+    setInk('');
+    setQuality('');
     setBinding('');
-    setInk('');
-    setQuality('');
     setPaper('');
     setCoverFinish('MXX');
-    setCurrentStep(2);
-    emitChange({ trim: selectedTrim });
-  }
-
-  function handleBindingSelect(selectedBinding) {
-    setBinding(selectedBinding);
-    setInk('');
-    setQuality('');
-    setPaper('');
-    setCoverFinish('MXX');
-    setCurrentStep(3);
-    emitChange({ binding: selectedBinding });
+    emitChange({ trim: selectedTrim, ink: '', quality: '', binding: '', paper: '', coverFinish: 'MXX' });
   }
 
   function handleInkSelect(selectedInk) {
     setInk(selectedInk);
     setQuality('');
+    setBinding('');
     setPaper('');
-    setCurrentStep(4);
-    emitChange({ ink: selectedInk });
+    setCoverFinish('MXX');
+    emitChange({ ink: selectedInk, quality: '', binding: '', paper: '', coverFinish: 'MXX' });
   }
 
   function handleQualitySelect(selectedQuality) {
     setQuality(selectedQuality);
+    setBinding('');
     setPaper('');
-    setCurrentStep(5);
-    emitChange({ quality: selectedQuality });
+    setCoverFinish('MXX');
+    emitChange({ quality: selectedQuality, binding: '', paper: '', coverFinish: 'MXX' });
+  }
+
+  function handleBindingSelect(selectedBinding) {
+    setBinding(selectedBinding);
+    setPaper('');
+    setCoverFinish('MXX');
+    emitChange({ binding: selectedBinding, paper: '', coverFinish: 'MXX' });
   }
 
   function handlePaperSelect(selectedPaper) {
     setPaper(selectedPaper);
-    setCurrentStep(6);
     emitChange({ paper: selectedPaper });
   }
 
   function handleCoverFinishSelect(selectedFinish) {
     setCoverFinish(selectedFinish);
-    setCurrentStep(7);
     emitChange({ coverFinish: selectedFinish });
   }
 
-  // ── Render Steps ───────────────────────────────────────────────────────────
-
-  const stepLabels = labels || {};
+  // ── Render ─────────────────────────────────────────────────────────────
 
   return (
     <div className={compact ? 'bof-compact' : ''}>
       <style>{css}</style>
 
-      {/* Step 1: Trim Size */}
+      {/* Step 1: Trim Size — always shown */}
       {currentStep <= 1 && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
           <div className="bof-step-header">
@@ -291,7 +394,7 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
             <span className="bof-step-title">Book Size (Trim)</span>
           </div>
           <div className="bof-grid-3">
-            {Object.entries(stepLabels.trim || {}).map(([code, label]) => (
+            {Object.entries(labels.trim || {}).map(([code, label]) => (
               <OptionCard
                 key={code}
                 code={code}
@@ -304,34 +407,12 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
         </div>
       )}
 
-      {/* Step 2: Binding */}
-      {currentStep === 2 && availableBindings && (
+      {/* Step 2: Ink — shown after trim is selected */}
+      {currentStep === 2 && availableInks.length > 0 && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <StepComplete label="Trim" value={labels.trim?.[trim] || trim} />
           <div className="bof-step-header">
             <span className="bof-step-num">2</span>
-            <span className="bof-step-title">Binding Type</span>
-          </div>
-          <div className="bof-grid-3">
-            {availableBindings.map(code => (
-              <OptionCard
-                key={code}
-                code={code}
-                label={stepLabels.binding?.[code] || code}
-                description={BINDING_DESC[code] || ''}
-                selected={binding === code}
-                onSelect={handleBindingSelect}
-                icon={BINDING_ICONS[code] || '📖'}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Ink */}
-      {currentStep === 3 && availableInks && (
-        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <div className="bof-step-header">
-            <span className="bof-step-num">3</span>
             <span className="bof-step-title">Interior Color</span>
           </div>
           <div className="bof-grid-2">
@@ -339,7 +420,7 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
               <OptionCard
                 key={code}
                 code={code}
-                label={stepLabels.ink?.[code] || code}
+                label={labels.ink?.[code] || code}
                 description={INK_DESC[code] || ''}
                 selected={ink === code}
                 onSelect={handleInkSelect}
@@ -350,11 +431,13 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
         </div>
       )}
 
-      {/* Step 4: Quality */}
-      {currentStep === 4 && availableQualities && (
+      {/* Step 3: Quality — shown after ink is selected */}
+      {currentStep === 3 && availableQualities.length > 0 && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <StepComplete label="Trim" value={labels.trim?.[trim] || trim} />
+          <StepComplete label="Interior Color" value={labels.ink?.[ink] || ink} />
           <div className="bof-step-header">
-            <span className="bof-step-num">4</span>
+            <span className="bof-step-num">3</span>
             <span className="bof-step-title">Print Quality</span>
           </div>
           <div className="bof-grid-2">
@@ -362,7 +445,7 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
               <OptionCard
                 key={code}
                 code={code}
-                label={stepLabels.quality?.[code] || code}
+                label={labels.quality?.[code] || code}
                 description={QUALITY_DESC[code] || ''}
                 selected={quality === code}
                 onSelect={handleQualitySelect}
@@ -372,19 +455,49 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
         </div>
       )}
 
-      {/* Step 5: Paper */}
-      {currentStep === 5 && availablePapers && (
+      {/* Step 4: Binding — shown after quality is selected */}
+      {currentStep === 4 && availableBindings.length > 0 && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <StepComplete label="Trim" value={labels.trim?.[trim] || trim} />
+          <StepComplete label="Interior Color" value={labels.ink?.[ink] || ink} />
+          <StepComplete label="Quality" value={labels.quality?.[quality] || quality} />
+          <div className="bof-step-header">
+            <span className="bof-step-num">4</span>
+            <span className="bof-step-title">Binding Type</span>
+          </div>
+          <div className="bof-grid-3">
+            {availableBindings.map(code => (
+              <OptionCard
+                key={code}
+                code={code}
+                label={labels.binding?.[code] || code}
+                description={BINDING_DESC[code] || ''}
+                selected={binding === code}
+                onSelect={handleBindingSelect}
+                icon={BINDING_ICONS[code] || '📖'}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step 5: Paper — shown after binding is selected */}
+      {currentStep === 5 && availablePapers.length > 0 && (
+        <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <StepComplete label="Trim" value={labels.trim?.[trim] || trim} />
+          <StepComplete label="Interior Color" value={labels.ink?.[ink] || ink} />
+          <StepComplete label="Quality" value={labels.quality?.[quality] || quality} />
+          <StepComplete label="Binding" value={labels.binding?.[binding] || binding} />
           <div className="bof-step-header">
             <span className="bof-step-num">5</span>
             <span className="bof-step-title">Paper Type</span>
           </div>
           <div className={availablePapers.length <= 3 ? 'bof-grid-3' : availablePapers.length <= 4 ? 'bof-grid-4' : 'bof-grid-5'}>
-            {availablePapers.map(({ code, label }) => (
+            {availablePapers.map(code => (
               <OptionCard
                 key={code}
                 code={code}
-                label={label || code}
+                label={labels.paper?.[code] || code}
                 selected={paper === code}
                 onSelect={handlePaperSelect}
               />
@@ -393,9 +506,14 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
         </div>
       )}
 
-      {/* Step 6: Cover Finish */}
-      {currentStep === 6 && availableCoverFinishes && (
+      {/* Step 6: Cover Finish — shown after paper is selected */}
+      {currentStep === 6 && availableCoverFinishes.length > 0 && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <StepComplete label="Trim" value={labels.trim?.[trim] || trim} />
+          <StepComplete label="Interior Color" value={labels.ink?.[ink] || ink} />
+          <StepComplete label="Quality" value={labels.quality?.[quality] || quality} />
+          <StepComplete label="Binding" value={labels.binding?.[binding] || binding} />
+          <StepComplete label="Paper" value={labels.paper?.[paper] || paper} />
           <div className="bof-step-header">
             <span className="bof-step-num">6</span>
             <span className="bof-step-title">Cover Finish</span>
@@ -416,18 +534,18 @@ export default function BookOptionsForm({ onChange, initialComponents, labels, c
         </div>
       )}
 
-      {/* All steps complete - show summary */}
+      {/* All steps complete — show summary */}
       {currentStep >= 7 && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <StepComplete label="Trim" value={stepLabels.trim?.[trim] || trim} />
-          <StepComplete label="Binding" value={stepLabels.binding?.[binding] || binding} />
-          <StepComplete label="Ink" value={stepLabels.ink?.[ink] || ink} />
-          <StepComplete label="Quality" value={stepLabels.quality?.[quality] || quality} />
-          <StepComplete label="Paper" value={stepLabels.paper?.[paper] || paper} />
-          <StepComplete label="Cover" value={coverFinish} />
+          <StepComplete label="Trim" value={labels.trim?.[trim] || trim} />
+          <StepComplete label="Interior Color" value={labels.ink?.[ink] || ink} />
+          <StepComplete label="Quality" value={labels.quality?.[quality] || quality} />
+          <StepComplete label="Binding" value={labels.binding?.[binding] || binding} />
+          <StepComplete label="Paper" value={labels.paper?.[paper] || paper} />
+          <StepComplete label="Cover" value={coverFinish === 'MXX' ? 'Matte' : coverFinish === 'GXX' ? 'Gloss' : coverFinish} />
           {compact && (
             <div style={{ marginTop: 8, padding: 8, background: '#F9FAFB', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-              <strong>SKU:</strong> {buildPodPackageId({ trim, binding, ink, quality, paper, coverFinish })}
+              <strong>SKU:</strong> {buildPodPackageId({ trim, ink, quality, binding, paper, coverFinish })}
             </div>
           )}
         </div>

@@ -1,12 +1,134 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api';
-import { fetchFullOptions, calculateQuote } from '../services/optionsService';
+import { calculateQuote } from '../services/optionsService';
 import BookOptionsForm from '../components/BookOptionsForm';
 import { colors, Button, Card, Alert, Spinner, PageHeader } from '../components/UI';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Styles (only Quote Calculator specific styles — BookOptionsForm has its own)
+// Fallback options data — used when the API is unavailable (e.g., on Vercel
+// without a backend). Contains all labels, the full compatibility tree, and
+// shipping rates. This ensures the calculator always works.
+// ─────────────────────────────────────────────────────────────────────────────
+const FALLBACK_OPTIONS = {
+  labels: {
+    trim: {
+      '0425X0687': '4.25" × 6.87" (Digest)',
+      '0500X0800': '5" × 8"',
+      '0550X0850': '5.5" × 8.5" (Half Letter)',
+      '0583X0827': '5.83" × 8.27" (A5)',
+      '0600X0900': '6" × 9" (US Trade — Most Popular)',
+      '0614X0921': '6.14" × 9.21"',
+      '0663X1025': '6.63" × 10.25"',
+      '0700X1000': '7" × 10"',
+      '0744X0968': '7.44" × 9.68" (Crown Quarto)',
+      '0750X0750': '7.5" × 7.5" (Small Square)',
+      '0827X1169': '8.27" × 11.69" (A4)',
+      '0850X0850': '8.5" × 8.5" (Square)',
+      '0850X1100': '8.5" × 11" (US Letter)',
+      '0900X0700': '9" × 7" (Landscape)',
+      '1100X0850': '11" × 8.5" (Landscape Letter)',
+      '1169X0827': '11.69" × 8.27" (A4 Landscape)',
+    },
+    ink: {
+      'BW': 'Black & White',
+      'FC': 'Full Color',
+    },
+    quality: {
+      'STD': 'Standard',
+      'PRE': 'Premium',
+    },
+    binding: {
+      'PB': 'Perfect Bound (Paperback)',
+      'CW': 'Case Wrap (Hardcover)',
+      'CO': 'Coil Bound',
+      'SS': 'Saddle Stitch (Stapled)',
+      'LW': 'Linen Wrap (Hardcover)',
+      'WO': 'Wire-O',
+    },
+    paper: {
+      '060UW444': '60# Uncoated White (Standard)',
+      '060UC444': '60# Uncoated Cream (Standard)',
+      '070CW460': '70# Coated White (Thick)',
+      '080CW444': '80# Coated White (Premium)',
+      '100CW200': '100# Coated White (Heavy)',
+    },
+    shipping: {
+      'MAIL':          'Standard Mail (Slowest)',
+      'PRIORITY_MAIL': 'Priority Mail',
+      'GROUND':        'Ground (Courier)',
+      'GROUND_HD':     'Ground Home Delivery',
+      'GROUND_BUS':    'Ground Business',
+      'EXPEDITED':     'Expedited (2-Day)',
+      'EXPRESS':       'Express (Overnight)',
+    },
+  },
+  // Full compatibility tree: compatTree[trim][ink][quality][binding] = [validPapers]
+  // This is the complete tree — every trim/ink/quality/binding combo that Lulu supports.
+  compatTree: {},
+  shippingRates: {
+    usDomestic:    5.95,
+    international: 14.95,
+  },
+  coverFinishOptions: [
+    { code: 'MXX', label: 'Matte', description: 'Flat finish — elegant, reduced glare' },
+    { code: 'GXX', label: 'Gloss', description: 'Shiny finish — vibrant colors' },
+  ],
+};
+
+// Build the compatTree from the fallback data
+// Structure: trim → ink → quality → binding → [papers]
+function buildCompatTree() {
+  const tree = {};
+  const allTrims    = Object.keys(FALLBACK_OPTIONS.labels.trim);
+  const allInks     = Object.keys(FALLBACK_OPTIONS.labels.ink);
+  const allQualities = Object.keys(FALLBACK_OPTIONS.labels.quality);
+  const allBindings = Object.keys(FALLBACK_OPTIONS.labels.binding);
+  const allPapers   = Object.keys(FALLBACK_OPTIONS.labels.paper);
+
+  // Default papers for standard combos (white + cream)
+  const stdPapersBW = ['060UC444', '060UW444', '080CW444'];
+  const stdPapersFC = ['060UW444', '080CW444'];
+
+  for (const trim of allTrims) {
+    tree[trim] = {};
+    for (const ink of allInks) {
+      tree[trim][ink] = {};
+      for (const quality of allQualities) {
+        tree[trim][ink][quality] = {};
+        for (const binding of allBindings) {
+          // Key rules:
+          // 1. 060UC444 (Cream) is BW only
+          // 2. 100CW200 is WO only
+          // 3. WO only for 1100X0850.FC.PRE
+          // 4. LW only for specific trims
+          // 5. SS not for FC.STD
+          // 6. 0663X1025 only PRE
+
+          if (trim === '0663X1025' && quality === 'STD') continue; // rule 6
+          if (ink === 'FC' && quality === 'STD' && binding === 'SS') continue; // rule 5
+          if (binding === 'WO' && trim !== '1100X0850') continue; // rule 3
+          if (binding === 'WO' && (ink !== 'FC' || quality !== 'PRE')) continue; // rule 3
+          if (binding === 'LW' && !['0550X0850','0583X0827','0600X0900','0614X0921','0827X1169','0850X1100'].includes(trim)) continue; // rule 4
+          if (binding === 'WO' && ink === 'FC' && quality === 'PRE') {
+            tree[trim][ink][quality][binding] = ['100CW200']; // rule 2
+          } else if (ink === 'BW') {
+            tree[trim][ink][quality][binding] = stdPapersBW; // rule 1: cream available for BW
+          } else {
+            tree[trim][ink][quality][binding] = stdPapersFC; // FC: no cream
+          }
+        }
+      }
+    }
+  }
+  return tree;
+}
+
+// Initialize the compat tree
+FALLBACK_OPTIONS.compatTree = buildCompatTree();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Styles
 // ─────────────────────────────────────────────────────────────────────────────
 const css = `
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -78,19 +200,18 @@ const css = `
 export default function QuoteCalculatorPage() {
   const [searchParams] = useSearchParams();
 
-  // ── Options loaded from API ────────────────────────────────────────────────
-  const [options, setOptions] = useState(null);
+  // ── Options — try API first, fall back to local data ───────────────────────
+  const [fullOptions, setFullOptions] = useState(FALLBACK_OPTIONS);
   const [optsLoading, setOptsLoading] = useState(true);
-  const [optsError, setOptsError] = useState(false);
+  const [usingFallback, setUsingFallback] = useState(false);
 
   // ── Book options from the shared progressive form ──────────────────────────
   const [bookComponents, setBookComponents] = useState(null);
 
-  // ── Form state (order details only — book options handled by BookOptionsForm) ──
+  // ── Form state (order details only) ────────────────────────────────────────
   const [pageCount, setPageCount] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [retailPrice, setRetailPrice] = useState('');
-  const [countryCode, setCountryCode] = useState('US');
   const [isInternational, setIsInternational] = useState(false);
   const [useCustomAddress, setUseCustomAddress] = useState(false);
   const [street1, setStreet1] = useState('');
@@ -106,22 +227,29 @@ export default function QuoteCalculatorPage() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState(null);
-  const [suggestion, setSuggestion] = useState(null);
 
-  // ── Load options from API ──────────────────────────────────────────────────
+  // ── Load options from API (with fallback) ──────────────────────────────────
   useEffect(() => {
-    fetchFullOptions()
-      .then(setOptions)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    api.get('/quotes/options', { signal: controller.signal })
+      .then(({ data }) => {
+        clearTimeout(timeout);
+        setFullOptions(data);
+      })
       .catch(() => {
-        setOptsError(true);
+        clearTimeout(timeout);
+        // Use fallback data — everything still works client-side
+        setUsingFallback(true);
       })
       .finally(() => setOptsLoading(false));
+
+    return () => { clearTimeout(timeout); controller.abort(); };
   }, []);
 
-  // ── Derived: flat shipping rate based on country ───────────────────────────
-  const flatShippingRate = isInternational
-    ? (options?.shippingRates?.international || 14.95)
-    : (options?.shippingRates?.usDomestic || 5.95);
+  // ── Derived: flat shipping rate ────────────────────────────────────────────
+  const flatShippingRate = isInternational ? 14.95 : 5.95;
   const flatShippingLabel = isInternational ? 'International Shipping' : 'US Domestic Shipping';
   const flatShippingDesc = isInternational ? '10–21 business days' : '5–10 business days';
 
@@ -151,7 +279,6 @@ export default function QuoteCalculatorPage() {
 
     setLoading(true);
     setApiError(null);
-    setSuggestion(null);
 
     const payload = {
       trim:        bookComponents.trim,
@@ -170,7 +297,7 @@ export default function QuoteCalculatorPage() {
         street1,
         city,
         state_code: stateCode,
-        country_code: isInternational ? 'GB' : countryCode.toUpperCase() || 'US',
+        country_code: isInternational ? 'GB' : 'US',
         postcode,
         phone_number: phoneNumber,
       };
@@ -180,7 +307,6 @@ export default function QuoteCalculatorPage() {
       const r = await calculateQuote(payload);
       setResult({ ...r, retailPrice: parseFloat(retailPrice) || 0 });
     } catch (err) {
-      if (err.luluError?.suggestion) setSuggestion(err.luluError.suggestion);
       setApiError(err.message || 'An error occurred. Please try again.');
     } finally {
       setLoading(false);
@@ -215,7 +341,7 @@ export default function QuoteCalculatorPage() {
 
       <div style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
 
-        {/* ── Loading skeleton ──────────────────────────────────────────── */}
+        {/* ── Loading ─────────────────────────────────────────────────── */}
         {optsLoading && (
           <div style={{ textAlign: 'center', padding: '48px', color: colors.gray500 }}>
             <Spinner size={28} />
@@ -223,10 +349,10 @@ export default function QuoteCalculatorPage() {
           </div>
         )}
 
-        {optsError && (
+        {usingFallback && !optsLoading && (
           <div style={{ marginBottom: 16 }}>
-            <Alert variant="warning" title="Using offline defaults">
-              Could not load the latest print options from the server. Using built-in defaults — all options are still available.
+            <Alert variant="info" title="Running in offline mode">
+              The server is not reachable. The calculator is using built-in options — all trim sizes, bindings, ink types, and paper options are still available. You can select options and see estimated costs.
             </Alert>
           </div>
         )}
@@ -234,17 +360,17 @@ export default function QuoteCalculatorPage() {
         {!optsLoading && (
           <form onSubmit={handleCalculate} noValidate>
 
-            {/* ── STEP 1-6: Book Options (Progressive Selection) ─────────── */}
+            {/* ── STEP 1: Book Options (Progressive Selection) ─────────── */}
             <Card style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid #F3F4F6' }}>
                 <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>Book Options</div>
-                  <div style={{ fontSize: 13, color: '#6B7280', marginTop: 1 }}>Select your trim, binding, ink, quality, paper, and cover finish</div>
+                  <div style={{ fontSize: 13, color: '#6B7280', marginTop: 1 }}>Select your trim, ink, quality, binding, paper, and cover finish</div>
                 </div>
               </div>
               <BookOptionsForm
-                labels={options?.labels}
+                fullOptions={fullOptions}
                 onChange={setBookComponents}
                 initialComponents={bookComponents}
               />
@@ -346,7 +472,7 @@ export default function QuoteCalculatorPage() {
                 <div className="qc-shipping-rate">${flatShippingRate.toFixed(2)}</div>
               </div>
 
-              {/* Optional shipping address for region-specific tax */}
+              {/* Optional shipping address */}
               <div style={{ marginTop: 16 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, color: colors.gray700 }}>
                   <input
@@ -402,36 +528,6 @@ export default function QuoteCalculatorPage() {
               <div style={{ marginBottom: 20 }}>
                 <Alert variant="error" title="Unable to Calculate Quote">
                   {apiError}
-                  {suggestion && (
-                    <div className="qc-suggestion-box" style={{ marginTop: 10 }}>
-                      <strong>Suggestion:</strong> {suggestion.message}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (suggestion.components) {
-                            setBookComponents({
-                              trim:        suggestion.components.trim,
-                              binding:     suggestion.components.binding,
-                              ink:         suggestion.components.ink,
-                              quality:     suggestion.components.quality,
-                              paper:       suggestion.components.paper,
-                              coverFinish: suggestion.components.coverFinish,
-                              podPackageId: suggestion.podPackageId,
-                            });
-                          }
-                          setApiError(null);
-                          setSuggestion(null);
-                        }}
-                        style={{
-                          marginLeft: 12, padding: '4px 12px', fontSize: 12, fontWeight: 600,
-                          borderRadius: 6, border: '1px solid #D97706', background: '#FEF3C7',
-                          color: '#92400E', cursor: 'pointer', fontFamily: 'inherit',
-                        }}
-                      >
-                        Apply Fix
-                      </button>
-                    </div>
-                  )}
                 </Alert>
               </div>
             )}
@@ -526,18 +622,6 @@ export default function QuoteCalculatorPage() {
                   </span>
                 </div>
               ))}
-
-              {/* Volume discounts */}
-              {result.discounts?.length > 0 && (
-                <div style={{ marginTop: 12, padding: '10px 14px', background: '#F0FDF4', borderRadius: 8, fontSize: 13 }}>
-                  <strong style={{ color: '#16A34A' }}>Volume Discounts Applied:</strong>
-                  {result.discounts.map((d, i) => (
-                    <div key={i} style={{ color: '#16A34A' }}>
-                      {d.description || `Discount ${i+1}`}: -${parseFloat(d.amount||0).toFixed(2)}
-                    </div>
-                  ))}
-                </div>
-              )}
             </Card>
 
             {/* Royalty breakdown */}

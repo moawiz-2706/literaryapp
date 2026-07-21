@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api';
-import { fetchFullOptions } from '../services/optionsService';
 import BookOptionsForm from '../components/BookOptionsForm';
 import {
   colors, Button, Card, Alert, Badge, Spinner, Input, Select,
@@ -14,6 +13,98 @@ const EMPTY_FORM = {
   pageCount: '',
   description: ''
 };
+
+// ── Fallback options data (same as QuoteCalculator) ─────────────────────────
+const FALLBACK_OPTIONS = {
+  labels: {
+    trim: {
+      '0425X0687': '4.25" × 6.87" (Digest)',
+      '0500X0800': '5" × 8"',
+      '0550X0850': '5.5" × 8.5" (Half Letter)',
+      '0583X0827': '5.83" × 8.27" (A5)',
+      '0600X0900': '6" × 9" (US Trade — Most Popular)',
+      '0614X0921': '6.14" × 9.21"',
+      '0663X1025': '6.63" × 10.25"',
+      '0700X1000': '7" × 10"',
+      '0744X0968': '7.44" × 9.68" (Crown Quarto)',
+      '0750X0750': '7.5" × 7.5" (Small Square)',
+      '0827X1169': '8.27" × 11.69" (A4)',
+      '0850X0850': '8.5" × 8.5" (Square)',
+      '0850X1100': '8.5" × 11" (US Letter)',
+      '0900X0700': '9" × 7" (Landscape)',
+      '1100X0850': '11" × 8.5" (Landscape Letter)',
+      '1169X0827': '11.69" × 8.27" (A4 Landscape)',
+    },
+    ink: {
+      'BW': 'Black & White',
+      'FC': 'Full Color',
+    },
+    quality: {
+      'STD': 'Standard',
+      'PRE': 'Premium',
+    },
+    binding: {
+      'PB': 'Perfect Bound (Paperback)',
+      'CW': 'Case Wrap (Hardcover)',
+      'CO': 'Coil Bound',
+      'SS': 'Saddle Stitch (Stapled)',
+      'LW': 'Linen Wrap (Hardcover)',
+      'WO': 'Wire-O',
+    },
+    paper: {
+      '060UW444': '60# Uncoated White (Standard)',
+      '060UC444': '60# Uncoated Cream (Standard)',
+      '070CW460': '70# Coated White (Thick)',
+      '080CW444': '80# Coated White (Premium)',
+      '100CW200': '100# Coated White (Heavy)',
+    },
+  },
+  compatTree: {},
+  shippingRates: {
+    usDomestic:    5.95,
+    international: 14.95,
+  },
+};
+
+function buildCompatTree() {
+  const tree = {};
+  const allTrims     = Object.keys(FALLBACK_OPTIONS.labels.trim);
+  const allInks      = Object.keys(FALLBACK_OPTIONS.labels.ink);
+  const allQualities = Object.keys(FALLBACK_OPTIONS.labels.quality);
+  const allBindings  = Object.keys(FALLBACK_OPTIONS.labels.binding);
+
+  const stdPapersBW = ['060UC444', '060UW444', '080CW444'];
+  const stdPapersFC = ['060UW444', '080CW444'];
+
+  for (const trim of allTrims) {
+    tree[trim] = {};
+    for (const ink of allInks) {
+      tree[trim][ink] = {};
+      for (const quality of allQualities) {
+        tree[trim][ink][quality] = {};
+        for (const binding of allBindings) {
+          if (trim === '0663X1025' && quality === 'STD') continue;
+          if (ink === 'FC' && quality === 'STD' && binding === 'SS') continue;
+          if (binding === 'WO' && trim !== '1100X0850') continue;
+          if (binding === 'WO' && (ink !== 'FC' || quality !== 'PRE')) continue;
+          if (binding === 'LW' && !['0550X0850','0583X0827','0600X0900','0614X0921','0827X1169','0850X1100'].includes(trim)) continue;
+          if (binding === 'WO' && ink === 'FC' && quality === 'PRE') {
+            tree[trim][ink][quality][binding] = ['100CW200'];
+          } else if (ink === 'BW') {
+            tree[trim][ink][quality][binding] = stdPapersBW;
+          } else {
+            tree[trim][ink][quality][binding] = stdPapersFC;
+          }
+        }
+      }
+    }
+  }
+  return tree;
+}
+
+FALLBACK_OPTIONS.compatTree = buildCompatTree();
+
+// ── Main Component ───────────────────────────────────────────────────────────
 
 export default function BookSetupPage() {
   const [searchParams] = useSearchParams();
@@ -31,22 +122,33 @@ export default function BookSetupPage() {
   const [successMsg, setSuccessMsg] = useState(null);
 
   // ── Book options (shared with Quote Calculator) ──────────────────────────
-  const [options, setOptions] = useState(null);
+  const [fullOptions, setFullOptions] = useState(FALLBACK_OPTIONS);
   const [optsLoading, setOptsLoading] = useState(true);
-  const [optsError, setOptsError] = useState(false);
+  const [usingFallback, setUsingFallback] = useState(false);
   const [bookComponents, setBookComponents] = useState(null);
 
-  // Load options on mount
+  // Load options on mount — try API, fall back to local data
   useEffect(() => {
-    fetchFullOptions()
-      .then(setOptions)
-      .catch(() => setOptsError(true))
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    api.get('/quotes/options', { signal: controller.signal })
+      .then(({ data }) => {
+        clearTimeout(timeout);
+        setFullOptions(data);
+      })
+      .catch(() => {
+        clearTimeout(timeout);
+        setUsingFallback(true);
+      })
       .finally(() => setOptsLoading(false));
+
+    return () => { clearTimeout(timeout); controller.abort(); };
   }, []);
 
   // ── Flat shipping info ──────────────────────────────────────────────────
-  const flatRateUS = options?.shippingRates?.usDomestic || 5.95;
-  const flatRateIntl = options?.shippingRates?.international || 14.95;
+  const flatRateUS = fullOptions?.shippingRates?.usDomestic || 5.95;
+  const flatRateIntl = fullOptions?.shippingRates?.international || 14.95;
 
   // Load books on mount
   const loadBooks = useCallback(async () => {
@@ -275,16 +377,17 @@ export default function BookSetupPage() {
                     <Spinner size={20} /> <span style={{ fontSize: 13, marginLeft: 8 }}>Loading print options…</span>
                   </div>
                 )}
-                {optsError && (
-                  <Alert variant="warning" style={{ marginBottom: 12 }}>
-                    Could not load the latest print options. Using built-in defaults.
+                {usingFallback && !optsLoading && (
+                  <Alert variant="info" style={{ marginBottom: 12 }}>
+                    Using built-in options — all trim sizes, bindings, ink types, and paper options are available.
                   </Alert>
                 )}
                 {!optsLoading && (
                   <BookOptionsForm
-                    labels={options?.labels}
+                    fullOptions={fullOptions}
                     onChange={setBookComponents}
                     initialComponents={bookComponents}
+                    compact
                   />
                 )}
                 {formErrors.bookOptions && (
