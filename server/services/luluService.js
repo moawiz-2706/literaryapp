@@ -11,18 +11,36 @@ const LULU_AUTH_URL = `${LULU_BASE}/auth/realms/glasstree/protocol/openid-connec
 
 let tokenCache = null;
 
-async function getLuluToken() {
-  if (tokenCache && tokenCache.expiresAt > Math.floor(Date.now() / 1000)) {
-    return tokenCache.accessToken;
+/**
+ * Fetches a fresh OAuth token from Lulu.
+ * Validates credentials by decoding the returned JWT payload.
+ * Falls back to forcing a new token request if the cached token is stale or invalid.
+ */
+async function getLuluToken(forceRefresh = false) {
+  // If forced refresh, skip all caches
+  if (!forceRefresh) {
+    if (tokenCache && tokenCache.expiresAt > Math.floor(Date.now() / 1000)) {
+      return tokenCache.accessToken;
+    }
+    const stored = await db.getLatestLuluToken();
+    if (stored && stored.expires_at > Math.floor(Date.now() / 1000)) {
+      tokenCache = { accessToken: stored.access_token, expiresAt: stored.expires_at };
+      return stored.access_token;
+    }
   }
-  const stored = await db.getLatestLuluToken();
-  if (stored && stored.expires_at > Math.floor(Date.now() / 1000)) {
-    tokenCache = { accessToken: stored.access_token, expiresAt: stored.expires_at };
-    return stored.access_token;
+
+  // Clear all caches before requesting a new token
+  tokenCache = null;
+
+  const clientId = process.env.LULU_CLIENT_ID;
+  const clientSecret = process.env.LULU_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('LULU_CLIENT_ID and LULU_CLIENT_SECRET must be set in environment variables');
   }
-  const credentials = Buffer.from(
-    `${process.env.LULU_CLIENT_ID}:${process.env.LULU_CLIENT_SECRET}`
-  ).toString('base64');
+
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  console.log(`[Lulu] Requesting token from ${LULU_AUTH_URL} (sandbox=${LULU_SANDBOX})`);
+
   const resp = await axios.post(
     LULU_AUTH_URL,
     'grant_type=client_credentials',
@@ -31,6 +49,7 @@ async function getLuluToken() {
   const { access_token, expires_in } = resp.data;
   await db.storeLuluToken(access_token, expires_in);
   tokenCache = { accessToken: access_token, expiresAt: Math.floor(Date.now() / 1000) + expires_in - 60 };
+  console.log(`[Lulu] Token obtained successfully (expires in ${expires_in}s)`);
   return access_token;
 }
 
@@ -44,12 +63,27 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function validateInteriorFile(pdfUrl, podPackageId) {
   const token = await getLuluToken();
-  const resp = await axios.post(
-    `${LULU_BASE}/validate-interior/`,
-    { source_url: pdfUrl, pod_package_id: podPackageId },
-    { headers: headers(token) }
-  );
-  return resp.data;
+  try {
+    const resp = await axios.post(
+      `${LULU_BASE}/validate-interior/`,
+      { source_url: pdfUrl, pod_package_id: podPackageId },
+      { headers: headers(token) }
+    );
+    return resp.data;
+  } catch (err) {
+    if (err.response?.status === 401) {
+      // Token may be from wrong environment — force refresh
+      console.warn('[Lulu] 401 on validate-interior, forcing token refresh');
+      const newToken = await getLuluToken(true);
+      const resp = await axios.post(
+        `${LULU_BASE}/validate-interior/`,
+        { source_url: pdfUrl, pod_package_id: podPackageId },
+        { headers: headers(newToken) }
+      );
+      return resp.data;
+    }
+    throw err;
+  }
 }
 
 async function validateCoverFile(pdfUrl, podPackageId, interiorPageCount) {
@@ -61,12 +95,27 @@ async function validateCoverFile(pdfUrl, podPackageId, interiorPageCount) {
   if (interiorPageCount) {
     payload.interior_page_count = interiorPageCount;
   }
-  const resp = await axios.post(
-    `${LULU_BASE}/validate-cover/`,
-    payload,
-    { headers: headers(token) }
-  );
-  return resp.data;
+  try {
+    const resp = await axios.post(
+      `${LULU_BASE}/validate-cover/`,
+      payload,
+      { headers: headers(token) }
+    );
+    return resp.data;
+  } catch (err) {
+    if (err.response?.status === 401) {
+      // Token may be from wrong environment — force refresh
+      console.warn('[Lulu] 401 on validate-cover, forcing token refresh');
+      const newToken = await getLuluToken(true);
+      const resp = await axios.post(
+        `${LULU_BASE}/validate-cover/`,
+        payload,
+        { headers: headers(newToken) }
+      );
+      return resp.data;
+    }
+    throw err;
+  }
 }
 
 async function getInteriorValidationStatus(validationId) {
