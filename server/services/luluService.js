@@ -52,11 +52,18 @@ async function validateInteriorFile(pdfUrl, podPackageId) {
   return resp.data;
 }
 
-async function validateCoverFile(pdfUrl, podPackageId) {
+async function validateCoverFile(pdfUrl, podPackageId, interiorPageCount) {
   const token = await getLuluToken();
+  const payload = {
+    source_url: pdfUrl,
+    pod_package_id: podPackageId
+  };
+  if (interiorPageCount) {
+    payload.interior_page_count = interiorPageCount;
+  }
   const resp = await axios.post(
     `${LULU_BASE}/validate-cover/`,
-    { source_url: pdfUrl, pod_package_id: podPackageId },
+    payload,
     { headers: headers(token) }
   );
   return resp.data;

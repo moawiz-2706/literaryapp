@@ -91,7 +91,7 @@ router.post('/upload', upload.fields([
     // 5. Submit files to Lulu for validation (async — client polls for status)
     const [interiorVal, coverVal] = await Promise.all([
       lulu.validateInteriorFile(interiorResult.url, podPackageId),
-      lulu.validateCoverFile(coverResult.url, podPackageId)
+      lulu.validateCoverFile(coverResult.url, podPackageId, parseInt(pageCount) || null)
     ]);
 
     await db.updateBook(bookId, {
