@@ -23,7 +23,7 @@
  *   compact: boolean - Use compact layout (for Book Setup page)
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const css = `
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -89,16 +89,15 @@ const BINDING_DESC = {
 const INK_DESC = { BW: 'Standard B&W interior printing', FC: 'Full color interior printing' };
 const QUALITY_DESC = { STD: 'Standard print quality', PRE: 'Premium — sharper, richer' };
 
-function OptionCard({ code, label, description, selected, disabled, onSelect, icon, compact }) {
+function OptionCard({ code, label, description, selected, onSelect, icon, compact }) {
   return (
     <div
-      className={`bof-option-card${selected ? ' bof-selected' : ''}${disabled ? ' bof-disabled' : ''}`}
-      onClick={() => !disabled && onSelect(code)}
+      className={`bof-option-card${selected ? ' bof-selected' : ''}`}
+      onClick={() => onSelect(code)}
       role="button"
       aria-pressed={selected}
-      aria-disabled={disabled}
-      tabIndex={disabled ? -1 : 0}
-      onKeyDown={e => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) onSelect(code); }}
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onSelect(code); }}
     >
       {icon && <span className="bof-icon">{icon}</span>}
       <span className="bof-label">{label}</span>
@@ -216,108 +215,80 @@ export default function BookOptionsForm({ fullOptions, onChange, initialComponen
   const [availableCoverFinishes, setAvailableCoverFinishes] = useState([]);
 
   // ── Current step (1 = trim, 7 = all done) ──────────────────────────────
-  const [currentStep, setCurrentStep] = useState(1);
+  // This is derived PURELY from which fields are selected — NOT from effects.
+  const currentStep = trim
+    ? (ink
+      ? (quality
+        ? (binding
+          ? (paper
+            ? (coverFinish ? 7 : 6)
+            : 5)
+          : 4)
+        : 3)
+      : 2)
+    : 1;
 
-  // ── Notify parent of changes ───────────────────────────────────────────
-  const emitChange = useCallback((updates) => {
+  // ── Ref to track whether we've already emitted the full selection ─────
+  const lastEmittedRef = useRef('');
+
+  // ── Notify parent of changes — ALWAYS emit all current values ──────────
+  const emitChange = useCallback(() => {
     if (!onChange) return;
-    const newTrim    = updates.trim    ?? trim;
-    const newInk     = updates.ink     ?? ink;
-    const newQuality = updates.quality ?? quality;
-    const newBinding = updates.binding ?? binding;
-    const newPaper   = updates.paper   ?? paper;
-    const newCover   = updates.coverFinish ?? coverFinish;
-
     onChange({
-      trim:        newTrim,
-      ink:         newInk,
-      quality:     newQuality,
-      binding:     newBinding,
-      paper:       newPaper,
-      coverFinish: newCover,
-      podPackageId: buildPodPackageId({
-        trim:        newTrim,
-        ink:         newInk,
-        quality:     newQuality,
-        binding:     newBinding,
-        paper:       newPaper,
-        coverFinish: newCover,
-      }),
+      trim,
+      ink,
+      quality,
+      binding,
+      paper,
+      coverFinish,
+      podPackageId: buildPodPackageId({ trim, ink, quality, binding, paper, coverFinish }),
     });
   }, [trim, ink, quality, binding, paper, coverFinish, onChange]);
 
-  // ── Update available options based on current selections ────────────────
+  // Emit whenever any field changes so parent always has latest values
   useEffect(() => {
-    if (!trim) {
-      // No trim selected yet — show step 1
-      setCurrentStep(1);
-      return;
+    const key = `${trim}|${ink}|${quality}|${binding}|${paper}|${coverFinish}`;
+    if (key !== lastEmittedRef.current) {
+      lastEmittedRef.current = key;
+      emitChange();
     }
-    setCurrentStep(2);
+  }, [trim, ink, quality, binding, paper, coverFinish, emitChange]);
 
-    // Step 2: Available inks for this trim
-    const inks = getAvailableInks(trim, compatTree, labels.ink || {});
-    setAvailableInks(inks);
-    // Auto-select if only one option
-    if (inks.length === 1 && !ink) {
-      setInk(inks[0]);
+  // ── Auto-complete: set available options ───────────────────────────────
+  useEffect(() => {
+    if (trim) {
+      const inks = getAvailableInks(trim, compatTree, labels.ink || {});
+      setAvailableInks(inks);
     }
   }, [trim, compatTree, labels.ink]);
 
   useEffect(() => {
-    if (!trim || !ink) return;
-    setCurrentStep(3);
-
-    // Step 3: Available qualities for this trim + ink
-    const qualities = getAvailableQualities(trim, ink, compatTree, labels.quality || {});
-    setAvailableQualities(qualities);
-    if (qualities.length === 1 && !quality) {
-      setQuality(qualities[0]);
+    if (trim && ink) {
+      const qualities = getAvailableQualities(trim, ink, compatTree, labels.quality || {});
+      setAvailableQualities(qualities);
     }
   }, [trim, ink, compatTree, labels.quality]);
 
   useEffect(() => {
-    if (!trim || !ink || !quality) return;
-    setCurrentStep(4);
-
-    // Step 4: Available bindings for this trim + ink + quality
-    const bindings = getAvailableBindings(trim, ink, quality, compatTree, labels.binding || {});
-    setAvailableBindings(bindings);
-    if (bindings.length === 1 && !binding) {
-      setBinding(bindings[0]);
+    if (trim && ink && quality) {
+      const bindings = getAvailableBindings(trim, ink, quality, compatTree, labels.binding || {});
+      setAvailableBindings(bindings);
     }
   }, [trim, ink, quality, compatTree, labels.binding]);
 
   useEffect(() => {
-    if (!trim || !ink || !quality || !binding) return;
-    setCurrentStep(5);
-
-    // Step 5: Available papers for this trim + ink + quality + binding
-    const papers = getAvailablePapers(trim, ink, quality, binding, compatTree, labels.paper || {});
-    setAvailablePapers(papers);
-    if (papers.length === 1 && !paper) {
-      setPaper(papers[0]);
+    if (trim && ink && quality && binding) {
+      const papers = getAvailablePapers(trim, ink, quality, binding, compatTree, labels.paper || {});
+      setAvailablePapers(papers);
     }
   }, [trim, ink, quality, binding, compatTree, labels.paper]);
 
   useEffect(() => {
-    if (!binding) return;
-    setCurrentStep(6);
-
-    // Step 6: Available cover finishes for this binding
-    const finishes = getAvailableCoverFinishes(binding);
-    setAvailableCoverFinishes(finishes);
-    // Default to MXX if available
-    if (!coverFinish || coverFinish === 'MXX') {
-      setCoverFinish('MXX');
+    if (binding) {
+      const finishes = getAvailableCoverFinishes(binding);
+      setAvailableCoverFinishes(finishes);
     }
   }, [binding]);
-
-  useEffect(() => {
-    if (trim && ink && quality && binding && paper && coverFinish) {
-      setCurrentStep(7);
-    }
-  }, [trim, ink, quality, binding, paper, coverFinish]);
 
   // ── Auto-complete from initialComponents ────────────────────────────────
   useEffect(() => {
@@ -343,7 +314,11 @@ export default function BookOptionsForm({ fullOptions, onChange, initialComponen
     setBinding('');
     setPaper('');
     setCoverFinish('MXX');
-    emitChange({ trim: selectedTrim, ink: '', quality: '', binding: '', paper: '', coverFinish: 'MXX' });
+    setAvailableInks([]);
+    setAvailableQualities([]);
+    setAvailableBindings([]);
+    setAvailablePapers([]);
+    setAvailableCoverFinishes([]);
   }
 
   function handleInkSelect(selectedInk) {
@@ -352,7 +327,10 @@ export default function BookOptionsForm({ fullOptions, onChange, initialComponen
     setBinding('');
     setPaper('');
     setCoverFinish('MXX');
-    emitChange({ ink: selectedInk, quality: '', binding: '', paper: '', coverFinish: 'MXX' });
+    setAvailableQualities([]);
+    setAvailableBindings([]);
+    setAvailablePapers([]);
+    setAvailableCoverFinishes([]);
   }
 
   function handleQualitySelect(selectedQuality) {
@@ -360,24 +338,27 @@ export default function BookOptionsForm({ fullOptions, onChange, initialComponen
     setBinding('');
     setPaper('');
     setCoverFinish('MXX');
-    emitChange({ quality: selectedQuality, binding: '', paper: '', coverFinish: 'MXX' });
+    setAvailableBindings([]);
+    setAvailablePapers([]);
+    setAvailableCoverFinishes([]);
   }
 
   function handleBindingSelect(selectedBinding) {
     setBinding(selectedBinding);
     setPaper('');
     setCoverFinish('MXX');
-    emitChange({ binding: selectedBinding, paper: '', coverFinish: 'MXX' });
+    setAvailablePapers([]);
+    setAvailableCoverFinishes([]);
   }
 
   function handlePaperSelect(selectedPaper) {
     setPaper(selectedPaper);
-    emitChange({ paper: selectedPaper });
+    setCoverFinish('MXX');
+    setAvailableCoverFinishes([]);
   }
 
   function handleCoverFinishSelect(selectedFinish) {
     setCoverFinish(selectedFinish);
-    emitChange({ coverFinish: selectedFinish });
   }
 
   // ── Render ─────────────────────────────────────────────────────────────

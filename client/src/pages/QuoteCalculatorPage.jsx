@@ -262,7 +262,12 @@ export default function QuoteCalculatorPage() {
     if (quantity < 1) errs.quantity = 'Quantity must be at least 1.';
     if (quantity > 10000) errs.quantity = 'Quantity cannot exceed 10,000.';
     if (retailPrice && parseFloat(retailPrice) < 0) errs.retailPrice = 'Retail price cannot be negative.';
-    if (!bookComponents?.podPackageId) errs.bookOptions = 'Please select all book options.';
+    if (!bookComponents?.trim) errs.bookOptions = 'Please select a trim size.';
+    else if (!bookComponents?.ink) errs.bookOptions = 'Please select interior color.';
+    else if (!bookComponents?.quality) errs.bookOptions = 'Please select print quality.';
+    else if (!bookComponents?.binding) errs.bookOptions = 'Please select a binding type.';
+    else if (!bookComponents?.paper) errs.bookOptions = 'Please select a paper type.';
+    else if (!bookComponents?.coverFinish) errs.bookOptions = 'Please select a cover finish.';
     if (useCustomAddress) {
       if (!street1.trim()) errs.street1 = 'Street address is required.';
       if (!city.trim()) errs.city = 'City is required.';
