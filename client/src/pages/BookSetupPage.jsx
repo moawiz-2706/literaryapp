@@ -285,7 +285,7 @@ export default function BookSetupPage() {
     street1: '', street2: '', city: '', state_code: '', country_code: 'US',
     postcode: '', phone_number: ''
   });
-  const [sampleStatusMap, setSampleStatusMap] = useState({}); // bookId -> { sampleStatus, luluTracking, ... }
+  const [sampleStatusMap, setSampleStatusMap] = useState({}); // bookId -> { sampleStatus, tracking, ... }
 
   // Poll sample status for books that have a sample ordered
   useEffect(() => {
@@ -321,7 +321,7 @@ export default function BookSetupPage() {
       });
       setSampleStatusMap(prev => ({ ...prev, [bookId]: resp.data }));
       setBooks(prev => prev.map(b =>
-        b.id === bookId ? { ...b, sample_print_job_id: resp.data.luluPrintJobId, sample_status: resp.data.sampleStatus, _sampleDisplayStatus: 'Sample Ordered' } : b
+        b.id === bookId ? { ...b, sample_print_job_id: resp.data.printJobId, sample_status: resp.data.sampleStatus, _sampleDisplayStatus: 'Sample Ordered' } : b
       ));
       setShowShippingForm(null);
       setSuccessMsg(`Sample copy ordered for "${books.find(b => b.id === bookId)?.title}". Cost: $${resp.data.costBreakdown.totalSampleCost.toFixed(2)}`);
@@ -425,7 +425,7 @@ export default function BookSetupPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
             {[
               { step: '1', title: 'Choose Book Options', desc: 'Select trim, binding, ink, quality, paper, and cover finish.' },
-              { step: '2', title: 'Upload Your Book', desc: 'Upload interior and cover PDFs. Validate with Lulu before submitting.' },
+              { step: '2', title: 'Upload Your Book', desc: 'Upload interior and cover PDFs. We validate your files before submitting.' },
               { step: '3', title: 'Reader Buys', desc: 'When a reader places an order, the system submits it for printing.' },
               { step: '4', title: 'Ships Direct', desc: 'We print and ship directly to your reader. Flat-rate shipping applied.' }
             ].map(item => (
@@ -556,7 +556,7 @@ export default function BookSetupPage() {
                     value={form.pageCount}
                     onChange={e => setForm(f => ({ ...f, pageCount: e.target.value }))}
                     error={formErrors.pageCount}
-                    hint="Must be an even number. Lulu will detect the actual count during validation."
+                    hint="Must be an even number. The print provider will detect the actual count during validation."
                     placeholder="250"
                   />
                   <Input
@@ -613,7 +613,7 @@ export default function BookSetupPage() {
                 )}
 
                 <Alert variant="info" style={{ marginTop: '16px', marginBottom: '16px' }}>
-                  Preview your PDFs above before submitting. When ready, click "Upload Book" to validate with Lulu and create the product.
+                  Preview your PDFs above before submitting. When ready, click "Upload Book" to validate your files and create the product.
                 </Alert>
               </div>
 
@@ -670,7 +670,7 @@ export default function BookSetupPage() {
                         display: 'flex', alignItems: 'center', gap: '8px',
                         marginTop: '8px', fontSize: '13px', color: colors.primary
                       }}>
-                        <Spinner size={14} /> Validating files with Lulu...
+                        <Spinner size={14} /> Validating files...
                       </div>
                     )}
                     {book.status === 'Ready' && book.ghl_product_id && (
@@ -682,9 +682,9 @@ export default function BookSetupPage() {
                     {/* Sample tracking info */}
                     {sampleStatusMap[book.id] && (
                       <div style={{ marginTop: '8px', fontSize: '12px', color: colors.gray700 }}>
-                        {sampleStatusMap[book.id].sampleStatus === 'shipped' && sampleStatusMap[book.id].luluTracking && (
+                        {sampleStatusMap[book.id].sampleStatus === 'shipped' && sampleStatusMap[book.id].trackingUrl && (
                           <div style={{ marginTop: '4px' }}>
-                            <a href={sampleStatusMap[book.id].luluTracking} target="_blank" rel="noopener noreferrer"
+                            <a href={sampleStatusMap[book.id].trackingUrl} target="_blank" rel="noopener noreferrer"
                               style={{ color: colors.primary, textDecoration: 'underline', fontSize: '12px' }}>
                               View Tracking
                             </a>

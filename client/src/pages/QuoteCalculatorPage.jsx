@@ -64,7 +64,7 @@ const FALLBACK_OPTIONS = {
     },
   },
   // Full compatibility tree: compatTree[trim][ink][quality][binding] = [validPapers]
-  // This is the complete tree — every trim/ink/quality/binding combo that Lulu supports.
+  // This is the complete tree — every trim/ink/quality/binding combo the print provider supports.
   compatTree: {},
   shippingRates: {
     usDomestic:    5.95,

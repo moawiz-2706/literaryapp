@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
-  timeout: 180000 // 3 minutes for PDF upload + Lulu validation
+  timeout: 180000 // 3 minutes for PDF upload + file validation
 });
 
 api.interceptors.response.use(
@@ -10,8 +10,8 @@ api.interceptors.response.use(
   err => {
     const data = err.response?.data;
 
-    // Build a human-readable message from the structured Lulu error response.
-    // The backend now returns: { error, detail, luluError } on failures.
+    // Build a human-readable message from the structured error response.
+    // The backend now returns: { error, detail, printError } on failures.
     let msg = 'An unexpected error occurred';
     if (data) {
       if (data.detail) {
@@ -25,10 +25,10 @@ api.interceptors.response.use(
       msg = err.message;
     }
 
-    // Attach the raw Lulu error data to the Error object so callers can
+    // Attach the raw error data to the Error object so callers can
     // inspect it if needed (e.g. for debugging).
     const error = new Error(msg);
-    error.luluError = data?.luluError || null;
+    error.printError = data?.printError || null;
     error.statusCode = err.response?.status || null;
     return Promise.reject(error);
   }

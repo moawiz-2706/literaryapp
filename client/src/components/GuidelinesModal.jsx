@@ -1,7 +1,7 @@
 /**
  * GuidelinesModal.jsx
  *
- * Comprehensive modal popup showing Lulu's official book formatting guidelines.
+ * Comprehensive modal popup showing print formatting guidelines.
  * Organized into tabbed sections for easy navigation.
  */
 
@@ -121,8 +121,8 @@ export default function GuidelinesModal({ onClose }) {
 
         <div className="gl-header">
           <div>
-            <h2>Lulu Formatting Guidelines</h2>
-            <p>Official specifications from Lulu.com Book Creation Guide</p>
+            <h2>Formatting Guidelines</h2>
+            <p>Official specifications from the Print Provider Book Creation Guide</p>
           </div>
           <button className="gl-close" onClick={onClose}>&times;</button>
         </div>
@@ -169,7 +169,7 @@ export default function GuidelinesModal({ onClose }) {
             </ul>
 
             <div className="gl-tip">
-              <strong>Tip:</strong> Use Lulu's Adobe Job Options when exporting from Adobe products to ensure print-ready settings are applied automatically.
+              <strong>Tip:</strong> Use the Adobe Job Options provided by your print provider when exporting from Adobe products to ensure print-ready settings are applied automatically.
             </div>
 
             <h3>Cover File Specifications</h3>
@@ -281,7 +281,7 @@ export default function GuidelinesModal({ onClose }) {
 
             <h4>Bleed Requirements</h4>
             <ul>
-              <li>Lulu requires a <strong>0.125 in (3.175 mm)</strong> bleed margin on <strong>ALL sides</strong></li>
+              <li>The print provider requires a <strong>0.125 in (3.175 mm)</strong> bleed margin on <strong>ALL sides</strong></li>
               <li>This is <strong>mandatory</strong> for all files</li>
               <li>Interior pages are printed oversized, then trimmed to the uniform trim size</li>
             </ul>
@@ -289,7 +289,7 @@ export default function GuidelinesModal({ onClose }) {
             <h4>How to Prepare Your File</h4>
             <div className="gl-tip">
               <strong>If your file does NOT have graphics extending to the edge:</strong><br />
-              Prepare your file at the final trim size. Lulu's system will automatically add the 0.125 in bleed margin.
+              Prepare your file at the final trim size. The printing system will automatically add the 0.125 in bleed margin.
             </div>
             <div className="gl-warning">
               <strong>If your file HAS graphics/fills extending to the edge:</strong><br />
@@ -347,14 +347,14 @@ export default function GuidelinesModal({ onClose }) {
           <div className={`gl-section ${activeTab === 'tools' ? 'active' : ''}`}>
             <h3>Tools & Export Settings</h3>
 
-            <h4>Lulu's PDF Job Options</h4>
-            <p>Lulu provides Adobe Job Options files that apply the correct printer settings automatically. These are included in Lulu's design bundles.</p>
+            <h4>PDF Job Options</h4>
+            <p>Your print provider offers Adobe Job Options files that apply the correct printer settings automatically.</p>
 
             <h4>Adobe InDesign</h4>
             <ol>
               <li>Go to: File &gt; Adobe PDF Presets &gt; Define</li>
               <li>Click Load and select the <code>.joboptions</code> file</li>
-              <li>Export your file, select Lulu's settings from the "Adobe PDF Preset" drop-down list</li>
+              <li>Export your file, select the print-ready settings from the "Adobe PDF Preset" drop-down list</li>
             </ol>
 
             <h4>Adobe Photoshop</h4>
@@ -388,7 +388,7 @@ export default function GuidelinesModal({ onClose }) {
         </div>
 
         <div className="gl-source">
-          Source: Lulu.com Book Creation Guide — {new Date().getFullYear()} Edition
+          Source: Print Provider Book Creation Guide — {new Date().getFullYear()} Edition
         </div>
       </div>
     </div>

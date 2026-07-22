@@ -2,7 +2,7 @@
  * coverDimensions.js
  *
  * Client-side helper to calculate spine width and expected cover dimensions
- * based on Lulu's official formulas and tables.
+ * based on industry-standard printing formulas and tables.
  */
 
 // ── Paperback Spine Width ─────────────────────────────────────────────────────

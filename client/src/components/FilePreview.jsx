@@ -163,7 +163,7 @@ export default function FilePreview({ interiorFile, coverFile, podPackageId, pag
             onClick={handleValidate}
             disabled={validating || !interiorFile || !podPackageId}
           >
-            {validating ? 'Validating...' : previewId ? 'Re-validate' : 'Validate with Lulu'}
+            {validating ? 'Validating...' : previewId ? 'Re-validate' : 'Validate Files'}
           </button>
         </div>
 
