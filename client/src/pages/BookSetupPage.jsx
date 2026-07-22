@@ -127,6 +127,9 @@ export default function BookSetupPage() {
   // Guidelines modal
   const [showGuidelines, setShowGuidelines] = useState(false);
 
+  // Expanded validation error for book list items
+  const [expandedErrorId, setExpandedErrorId] = useState(null);
+
   // ── Book options (shared with Quote Calculator) ──────────────────────────
   const [fullOptions, setFullOptions] = useState(FALLBACK_OPTIONS);
   const [optsLoading, setOptsLoading] = useState(true);
@@ -180,18 +183,17 @@ export default function BookSetupPage() {
       return setInterval(async () => {
         try {
           const resp = await api.get(`/books/${book.id}/validation-status`);
-          const { status, printCost, authorProfit, ghlProductId } = resp.data;
+          const { status, printCost, authorProfit, ghlProductId, validationDetails } = resp.data;
           if (status !== 'Validating') {
             setBooks(prev => prev.map(b =>
               b.id === book.id
-                ? { ...b, status, print_cost: printCost, author_profit: authorProfit, ghl_product_id: ghlProductId }
+                ? { ...b, status, print_cost: printCost, author_profit: authorProfit, ghl_product_id: ghlProductId, validation_details: validationDetails }
                 : b
             ));
             if (status === 'Ready') {
               setSuccessMsg(`"${book.title}" has been validated and is ready to sell.`);
-            } else if (status === 'Error') {
-              setError(`"${book.title}" failed validation. Please check your PDF files.`);
             }
+            // Don't show global error toast for individual book errors — show inline
           }
         } catch (_) {}
       }, 15000);
@@ -593,8 +595,78 @@ export default function BookSetupPage() {
                       </div>
                     )}
                     {book.status === 'Error' && (
-                      <div style={{ marginTop: '8px', fontSize: '12px', color: colors.error }}>
-                        Validation failed. Remove this book and re-upload corrected PDF files.
+                      <div style={{ marginTop: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedErrorId(expandedErrorId === book.id ? null : book.id)}
+                            style={{
+                              fontSize: 12, color: '#DC2626', background: 'none',
+                              border: '1px solid #FECACA', borderRadius: 6,
+                              padding: '3px 10px', cursor: 'pointer', fontFamily: colors.fontFamily,
+                              fontWeight: 500
+                            }}
+                          >
+                            {expandedErrorId === book.id ? 'Hide Details' : 'View Error Details'}
+                          </button>
+                        </div>
+                        {expandedErrorId === book.id && book.validation_details && (
+                          <div style={{
+                            marginTop: 8, padding: 12, background: '#FEF2F2',
+                            borderRadius: 8, border: '1px solid #FECACA', fontSize: 13, color: '#991B1B'
+                          }}>
+                            {(book.validation_details.errors || []).map((fileErr, idx) => (
+                              <div key={idx} style={{ marginBottom: idx < (book.validation_details.errors?.length || 0) - 1 ? 10 : 0 }}>
+                                <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 13 }}>
+                                  {fileErr.fileType} PDF — Validation Failed
+                                </div>
+                                {fileErr.errors.map((e, i) => {
+                                  if (e.type === 'dimension_mismatch') {
+                                    return (
+                                      <div key={i} style={{ marginBottom: 8 }}>
+                                        <div style={{ marginBottom: 4 }}><strong>Problem:</strong> {e.summary}</div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: 12, marginBottom: 6 }}>
+                                          <span style={{ color: '#B91C1C', fontWeight: 600 }}>Your file:</span>
+                                          <span>{e.yourDimensions}</span>
+                                          <span style={{ color: '#047857', fontWeight: 600 }}>Required:</span>
+                                          <span>{e.requiredDimensions}</span>
+                                        </div>
+                                        <div style={{
+                                          background: '#FFFBEB', border: '1px solid #FDE68A',
+                                          borderRadius: 6, padding: '8px 10px', fontSize: 12, color: '#92400E'
+                                        }}>
+                                          <strong>Fix:</strong> {e.suggestion || e.message}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <div key={i} style={{ marginBottom: 6 }}>
+                                      <div style={{ background: '#FFFFFF', padding: '8px 12px', borderRadius: 6, border: '1px solid #FECACA' }}>
+                                        {e.message || JSON.stringify(e)}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                            <div style={{ marginTop: 10, fontSize: 12, color: '#DC2626' }}>
+                              <strong>Next steps:</strong> Fix your PDF files based on the details above, then remove this book and re-upload.
+                            </div>
+                          </div>
+                        )}
+                        {/* Fallback if no structured details */}
+                        {expandedErrorId === book.id && !book.validation_details && (
+                          <div style={{
+                            marginTop: 8, padding: 12, background: '#FEF2F2',
+                            borderRadius: 8, border: '1px solid #FECACA', fontSize: 12, color: '#991B1B'
+                          }}>
+                            {book.validation_error || 'Validation failed. Check your PDF files and try again.'}
+                            <div style={{ marginTop: 8, color: '#B91C1C' }}>
+                              <strong>Next steps:</strong> Fix your PDF files, then remove this book and re-upload.
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
