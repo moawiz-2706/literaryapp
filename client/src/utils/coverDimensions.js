@@ -107,3 +107,4 @@ export function getFileDimensions(trimId) {
     safetyMargin: '0.5 in (12.7 mm)',
   };
 }
+

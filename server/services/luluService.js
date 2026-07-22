@@ -293,13 +293,37 @@ async function getShippingOptions({ countryCode, stateCode, pageCount, podPackag
 
 async function createPrintJob(orderData) {
   const token = await getLuluToken();
+
+  // contact_email is required by Lulu — provide a fallback if not set
+  const contactEmail = orderData.readerEmail || orderData.contactEmail || 'orders@literaryapp.com';
+
+  // external_id is optional — only set if provided
+  const externalId = orderData.contactId || undefined;
+
+  // phone_number is required by Lulu — provide a safe fallback
+  const addr = orderData.shippingAddress || {};
+  let phoneNumber = addr.phone_number || addr.phone || '0000000000';
+  // Lulu requires at least 7 digits. Clean up and validate.
+  const digitsOnly = phoneNumber.replace(/\D/g, '');
+  if (digitsOnly.length < 7) {
+    phoneNumber = '0000000000';
+    console.warn('[Lulu] Phone number too short, using fallback');
+  }
+
+  // state_code: only include for countries that use state codes
+  const countriesWithStates = ['US', 'CA', 'AU', 'IN', 'GB', 'DE', 'FR', 'IT', 'ES', 'BR', 'MX', 'AR', 'JP', 'CN'];
+  const countryCode = addr.country_code || 'US';
+  const stateCode = countriesWithStates.includes(countryCode)
+    ? (addr.state_code || '')
+    : null;
+
   const payload = {
-    contact_email: orderData.readerEmail,
-    external_id: orderData.contactId,
+    contact_email: contactEmail,
+    external_id: externalId,
     production_delay: parseInt(process.env.LULU_PRODUCTION_DELAY) || 60,
     line_items: [
       {
-        title: orderData.bookTitle,
+        title: orderData.bookTitle || 'Book',
         cover: orderData.coverPdfUrl,
         interior: orderData.interiorPdfUrl,
         pod_package_id: orderData.podPackageId,
@@ -307,15 +331,15 @@ async function createPrintJob(orderData) {
       }
     ],
     shipping_address: {
-      name:         orderData.shippingAddress.name,
-      street1:      orderData.shippingAddress.street1,
-      street2:      orderData.shippingAddress.street2 || undefined,
-      city:         orderData.shippingAddress.city,
-      state_code:   orderData.shippingAddress.state_code || '',
-      country_code: orderData.shippingAddress.country_code || 'US',
-      postcode:     orderData.shippingAddress.postcode,
-      phone_number: orderData.shippingAddress.phone_number || orderData.shippingAddress.phone || '',
-      email:        orderData.readerEmail
+      name:         addr.name || 'Customer',
+      street1:      addr.street1,
+      street2:      addr.street2 || undefined,
+      city:         addr.city,
+      state_code:   stateCode,
+      country_code: countryCode,
+      postcode:     addr.postcode,
+      phone_number: phoneNumber,
+      email:        contactEmail
     },
     shipping_level: orderData.shippingLevel || 'MAIL'
   };
@@ -323,8 +347,17 @@ async function createPrintJob(orderData) {
   // Remove undefined optional fields
   if (!payload.shipping_address.street2) delete payload.shipping_address.street2;
 
-  const resp = await axios.post(`${LULU_BASE}/print-jobs/`, payload, { headers: headers(token) });
-  return resp.data;
+  console.log('[Lulu] Creating print job payload:', JSON.stringify(payload, null, 2));
+
+  try {
+    const resp = await axios.post(`${LULU_BASE}/print-jobs/`, payload, { headers: headers(token) });
+    return resp.data;
+  } catch (err) {
+    if (err.response) {
+      console.error('[Lulu] Print job creation failed:', JSON.stringify(err.response.data, null, 2));
+    }
+    throw err;
+  }
 }
 
 async function getPrintJobStatus(luluPrintJobId) {
