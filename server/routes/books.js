@@ -17,16 +17,46 @@ function formatLuluError(fileType, rawErrors, luluResponse) {
   if (Array.isArray(rawErrors) && rawErrors.length > 0) {
     const formatted = rawErrors.map(errMsg => {
       // Try to parse dimension-related errors
-      const dimensionMatch = errMsg.match(/Your PDF dimensions are ([0-9.]+)"\s*x\s*([0-9.]+)"\s*\(([0-9.]+)mm\s*x\s*([0-9.]+)mm\)/);
-      const expectedMatch = errMsg.match(/the PDF dimensions need to be within ([0-9.]+)"-[0-9.]+"\s*x\s*([0-9.]+)"-[0-9.]+"/);
+      // Lulu format: "Your PDF dimensions are 9.250" x 12.375" (234.95mm x 314.32mm)
+      // For the book size you selected, the PDF dimensions need to be within 12.356"-12.481" x 9.188"-9.312". (313.83mm-317.01mm x 233.36mm-236.54mm)."
+      const yourDims = errMsg.match(/Your PDF dimensions are ([0-9.]+)"\s*x\s*([0-9.]+)"/i);
+      const yourMm   = errMsg.match(/\(([0-9.]+)mm\s*x\s*([0-9.]+)mm\)/i);
+      // Expected format: "need to be within Wmin-Wmax" x Hmin-Hmax"
+      const expectedMatch = errMsg.match(/need to be within ([0-9.]+)"[–-]([0-9.]+)"\s*x\s*([0-9.]+)"[–-]([0-9.]+)"/i);
+      const expectedMm    = errMsg.match(/\(([0-9.]+)mm[–-]([0-9.]+)mm\s*x\s*([0-9.]+)mm[–-]([0-9.]+)mm\)/i);
 
-      if (dimensionMatch && expectedMatch) {
+      if (yourDims && expectedMatch) {
+        const wMin = parseFloat(expectedMatch[1]);
+        const wMax = parseFloat(expectedMatch[2]);
+        const hMin = parseFloat(expectedMatch[3]);
+        const hMax = parseFloat(expectedMatch[4]);
+        const yourW = parseFloat(yourDims[1]);
+        const yourH = parseFloat(yourDims[2]);
+
+        // Determine which dimension is off
+        const wDiff = Math.abs(yourW - wMin);
+        const hDiff = Math.abs(yourH - hMin);
+
+        let diagnosis = '';
+        if (wDiff > hDiff && yourW < wMin) {
+          diagnosis = `Your PDF width (${yourW}") is too narrow — needs to be at least ${wMin}".`;
+        } else if (wDiff > hDiff && yourW > wMax) {
+          diagnosis = `Your PDF width (${yourW}") is too wide — max allowed is ${wMax}".`;
+        } else if (yourH < hMin) {
+          diagnosis = `Your PDF height (${yourH}") is too short — needs to be at least ${hMin}".`;
+        } else if (yourH > hMax) {
+          diagnosis = `Your PDF height (${yourH}") is too tall — max allowed is ${hMax}".`;
+        } else {
+          diagnosis = `Your PDF dimensions are outside the acceptable range for the selected book size.`;
+        }
+
         return {
           type: 'dimension_mismatch',
-          summary: `Your PDF is ${dimensionMatch[1]}\" × ${dimensionMatch[2]}\" but needs to be ${expectedMatch[1]}\"–${expectedMatch[2]}\" × ${expectedMatch[3]}\"–${expectedMatch[4]}\"`,
-          yourDimensions: `${dimensionMatch[1]}\" × ${dimensionMatch[2]}\" (${dimensionMatch[3]}mm × ${dimensionMatch[4]}mm)`,
-          requiredDimensions: `${expectedMatch[1]}\"–${expectedMatch[2]}\" × ${expectedMatch[3]}\"–${expectedMatch[4]}\"`,
-          suggestion: 'Adjust your PDF page size in your design tool to match the required dimensions, or select a different book size.'
+          summary: diagnosis,
+          yourDimensions: `${yourW}" × ${yourH}" (${yourMm ? yourMm[1] + 'mm × ' + yourMm[2] + 'mm' : 'N/A'})`,
+          requiredDimensions: `${wMin}"–${wMax}" × ${hMin}"–${hMax}" (${expectedMm ? expectedMm[1] + 'mm–' + expectedMm[2] + 'mm × ' + expectedMm[3] + 'mm–' + expectedMm[4] + 'mm' : ''})`,
+          suggestion: 'Re-export your cover PDF with the exact dimensions above. Open the Guidelines for your trim size to get the correct page size.',
+          rawError: errMsg
         };
       }
       // Generic error — return as-is but cleaned
@@ -252,11 +282,24 @@ router.get('/:bookId/validation-status', async (req, res) => {
           raw: rawDetails
         });
 
-        await db.updateBook(bookId, {
-          status: 'Error',
-          validationError: userMsg,
-          validationDetails: detailsJson
-        });
+        try {
+          await db.updateBook(bookId, {
+            status: 'Error',
+            validationError: userMsg,
+            validationDetails: detailsJson
+          });
+        } catch (dbErr) {
+          // If validation_details column doesn't exist yet, fall back to just status + validationError
+          if (dbErr.message.includes('validation_details')) {
+            console.warn('[Books] validation_details column missing — storing only validation_error. Run migration.');
+            await db.updateBook(bookId, {
+              status: 'Error',
+              validationError: userMsg
+            });
+          } else {
+            throw dbErr;
+          }
+        }
 
         if (authorContactId) {
           await ghl.writeBookCustomFields(book.location_id, authorContactId, book.book_number, {
