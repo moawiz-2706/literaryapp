@@ -218,7 +218,10 @@ export function statusBadge(status) {
     'Ready': 'success', 'Validating': 'info', 'Setup': 'default',
     'Error': 'error', 'Sent to Print': 'info', 'In Production': 'info',
     'Shipped': 'success', 'Delivered': 'success', 'Fulfillment Error': 'error',
-    'Cancelled': 'default', 'Pending': 'warning'
+    'Cancelled': 'default', 'Pending': 'warning',
+    'Sample Ordered': 'warning', 'Sample Shipped': 'info',
+    'Sample Delivered': 'success', 'Approved': 'success',
+    'Validated': 'info', 'Pending Approval': 'warning'
   };
   return <Badge variant={map[status] || 'default'}>{status}</Badge>;
 }

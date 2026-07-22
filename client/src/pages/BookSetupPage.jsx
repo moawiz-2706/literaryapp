@@ -277,6 +277,90 @@ export default function BookSetupPage() {
     }
   }
 
+  // ── Sample Order & Approval ────────────────────────────────────────────────
+  const [sampleOrdering, setSampleOrdering] = useState(null); // bookId currently ordering
+  const [sampleApproving, setSampleApproving] = useState(null); // bookId currently approving
+  const [showShippingForm, setShowShippingForm] = useState(null); // bookId with open shipping form
+  const [shippingForm, setShippingForm] = useState({
+    street1: '', street2: '', city: '', state_code: '', country_code: 'US',
+    postcode: '', phone_number: ''
+  });
+  const [sampleStatusMap, setSampleStatusMap] = useState({}); // bookId -> { sampleStatus, luluTracking, ... }
+
+  // Poll sample status for books that have a sample ordered
+  useEffect(() => {
+    const hasSample = books.filter(b => b.sample_print_job_id || (sampleStatusMap[b.id]?.sampleStatus && sampleStatusMap[b.id]?.sampleStatus !== 'delivered'));
+    if (!hasSample.length) return;
+    const intervals = hasSample.map(book => {
+      return setInterval(async () => {
+        try {
+          const resp = await api.get(`/samples/${book.id}/status`);
+          setSampleStatusMap(prev => ({ ...prev, [book.id]: resp.data }));
+          // Update book status display based on sample status
+          const s = resp.data.sampleStatus;
+          if (s === 'shipped' || s === 'delivered') {
+            setBooks(prev => prev.map(b =>
+              b.id === book.id ? { ...b, _sampleDisplayStatus: s === 'shipped' ? 'Sample Shipped' : 'Sample Delivered' } : b
+            ));
+          }
+        } catch (_) {}
+      }, 30000);
+    });
+    return () => intervals.forEach(clearInterval);
+  }, [books, sampleStatusMap]);
+
+  async function handleOrderSample(bookId) {
+    setSampleOrdering(bookId);
+    setError(null);
+    try {
+      const resp = await api.post('/samples/order', {
+        locationId,
+        bookId,
+        shippingAddress: shippingForm,
+        shippingLevel: 'MAIL'
+      });
+      setSampleStatusMap(prev => ({ ...prev, [bookId]: resp.data }));
+      setBooks(prev => prev.map(b =>
+        b.id === bookId ? { ...b, sample_print_job_id: resp.data.luluPrintJobId, sample_status: resp.data.sampleStatus, _sampleDisplayStatus: 'Sample Ordered' } : b
+      ));
+      setShowShippingForm(null);
+      setSuccessMsg(`Sample copy ordered for "${books.find(b => b.id === bookId)?.title}". Cost: $${resp.data.costBreakdown.totalSampleCost.toFixed(2)}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSampleOrdering(null);
+    }
+  }
+
+  async function handleApproveProduct(bookId) {
+    if (!window.confirm('Are you sure you want to approve this product? It will be activated in your subaccount and ready for customers to order.')) return;
+    setSampleApproving(bookId);
+    setError(null);
+    try {
+      const resp = await api.post('/samples/approve', { locationId, bookId });
+      setBooks(prev => prev.map(b =>
+        b.id === bookId ? { ...b, _sampleDisplayStatus: 'Approved', product_approved: true } : b
+      ));
+      setSuccessMsg(`Product "${resp.data.productTitle}" approved and activated!`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSampleApproving(null);
+    }
+  }
+
+  function getBookDisplayStatus(book) {
+    // If sample has been ordered, show sample status
+    if (book._sampleDisplayStatus) return book._sampleDisplayStatus;
+    if (sampleStatusMap[book.id]) {
+      const s = sampleStatusMap[book.id].sampleStatus;
+      if (s === 'ordered') return 'Sample Ordered';
+      if (s === 'shipped') return 'Sample Shipped';
+      if (s === 'delivered') return 'Sample Delivered';
+    }
+    return book.status;
+  }
+
   // ── Extract binding from podPackageId for format info ─────────────────────
   const bindingFromPod = bookComponents?.podPackageId
     ? bookComponents.podPackageId.split('.')[3]
@@ -573,7 +657,7 @@ export default function BookSetupPage() {
                       <span style={{ fontSize: '15px', fontWeight: '600', color: colors.gray900 }}>
                         {book.title}
                       </span>
-                      {statusBadge(book.status)}
+                      {statusBadge(getBookDisplayStatus(book))}
                     </div>
                     <div style={{ fontSize: '13px', color: colors.gray500 }}>
                       {book.pod_package_id}
@@ -590,8 +674,60 @@ export default function BookSetupPage() {
                       </div>
                     )}
                     {book.status === 'Ready' && book.ghl_product_id && (
-                      <div style={{ marginTop: '8px', fontSize: '12px', color: colors.success }}>
-                        Product created. Attach it to your order form to start selling.
+                      <div style={{ marginTop: '8px', fontSize: '12px', color: colors.gray500 }}>
+                        Product created in GHL. Order a sample to review, then approve to activate.
+                      </div>
+                    )}
+
+                    {/* Sample tracking info */}
+                    {sampleStatusMap[book.id] && (
+                      <div style={{ marginTop: '8px', fontSize: '12px', color: colors.gray700 }}>
+                        {sampleStatusMap[book.id].sampleStatus === 'shipped' && sampleStatusMap[book.id].luluTracking && (
+                          <div style={{ marginTop: '4px' }}>
+                            <a href={sampleStatusMap[book.id].luluTracking} target="_blank" rel="noopener noreferrer"
+                              style={{ color: colors.primary, textDecoration: 'underline', fontSize: '12px' }}>
+                              View Tracking
+                            </a>
+                          </div>
+                        )}
+                        {sampleStatusMap[book.id].sampleCost > 0 && (
+                          <div style={{ marginTop: '2px' }}>Sample cost: ${parseFloat(sampleStatusMap[book.id].sampleCost).toFixed(2)}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Shipping address form (shown when user clicks Order Sample) */}
+                    {showShippingForm === book.id && (
+                      <div style={{
+                        marginTop: '12px', padding: '12px', background: colors.gray50,
+                        borderRadius: '8px', border: `1px solid ${colors.gray200}`
+                      }}>
+                        <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: colors.gray900 }}>
+                          Shipping Address for Sample
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <input type="text" placeholder="Street Address" value={shippingForm.street1}
+                            onChange={e => setShippingForm(f => ({ ...f, street1: e.target.value }))}
+                            style={{ gridCol: '1 / -1', padding: '8px 12px', border: `1px solid ${colors.gray200}`, borderRadius: '6px', fontSize: '13px' }} />
+                          <input type="text" placeholder="Apt/Suite (optional)" value={shippingForm.street2}
+                            onChange={e => setShippingForm(f => ({ ...f, street2: e.target.value }))}
+                            style={{ padding: '8px 12px', border: `1px solid ${colors.gray200}`, borderRadius: '6px', fontSize: '13px' }} />
+                          <input type="text" placeholder="State" value={shippingForm.state_code}
+                            onChange={e => setShippingForm(f => ({ ...f, state_code: e.target.value }))}
+                            style={{ padding: '8px 12px', border: `1px solid ${colors.gray200}`, borderRadius: '6px', fontSize: '13px' }} />
+                          <input type="text" placeholder="City" value={shippingForm.city}
+                            onChange={e => setShippingForm(f => ({ ...f, city: e.target.value }))}
+                            style={{ padding: '8px 12px', border: `1px solid ${colors.gray200}`, borderRadius: '6px', fontSize: '13px' }} />
+                          <input type="text" placeholder="ZIP Code" value={shippingForm.postcode}
+                            onChange={e => setShippingForm(f => ({ ...f, postcode: e.target.value }))}
+                            style={{ padding: '8px 12px', border: `1px solid ${colors.gray200}`, borderRadius: '6px', fontSize: '13px' }} />
+                          <input type="text" placeholder="Country Code" value={shippingForm.country_code}
+                            onChange={e => setShippingForm(f => ({ ...f, country_code: e.target.value }))}
+                            style={{ padding: '8px 12px', border: `1px solid ${colors.gray200}`, borderRadius: '6px', fontSize: '13px' }} />
+                          <input type="text" placeholder="Phone Number" value={shippingForm.phone_number}
+                            onChange={e => setShippingForm(f => ({ ...f, phone_number: e.target.value }))}
+                            style={{ gridCol: '1 / -1', padding: '8px 12px', border: `1px solid ${colors.gray200}`, borderRadius: '6px', fontSize: '13px' }} />
+                        </div>
                       </div>
                     )}
                     {book.status === 'Error' && (
@@ -670,13 +806,52 @@ export default function BookSetupPage() {
                       </div>
                     )}
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleDelete(book.id, book.title)}
-                  >
-                    Remove
-                  </Button>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    {/* Order Sample - only for Ready books */}
+                    {book.status === 'Ready' && !sampleStatusMap[book.id]?.sampleStatus && showShippingForm !== book.id && (
+                      <Button variant="ghost" size="sm" onClick={() => setShowShippingForm(book.id)}>
+                        Order Sample
+                      </Button>
+                    )}
+                    {showShippingForm === book.id && (
+                      <>
+                        <Button
+                          size="sm"
+                          disabled={sampleOrdering === book.id || !shippingForm.street1 || !shippingForm.city}
+                          onClick={() => handleOrderSample(book.id)}
+                        >
+                          {sampleOrdering === book.id ? 'Ordering...' : 'Confirm Order'}
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => setShowShippingForm(null)}>
+                          Cancel
+                        </Button>
+                      </>
+                    )}
+                    {/* Approve & Publish - only after sample is delivered or skipped */}
+                    {book.status === 'Ready' && !book.product_approved && (
+                      sampleStatusMap[book.id]?.sampleStatus === 'delivered' ? (
+                        <Button
+                          variant="success"
+                          size="sm"
+                          disabled={sampleApproving === book.id}
+                          onClick={() => handleApproveProduct(book.id)}
+                        >
+                          {sampleApproving === book.id ? 'Approving...' : 'Approve & Publish'}
+                        </Button>
+                      ) : !sampleStatusMap[book.id]?.sampleStatus ? (
+                        <Button variant="ghost" size="sm" onClick={() => handleApproveProduct(book.id)} title="Skip sample and publish directly">
+                          Skip & Publish
+                        </Button>
+                      ) : null
+                    )}
+                    {book._sampleDisplayStatus === 'Approved' && (
+                      <Badge variant="success">Approved</Badge>
+                    )}
+                    {/* Remove */}
+                    <Button variant="secondary" size="sm" onClick={() => handleDelete(book.id, book.title)}>
+                      Remove
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
