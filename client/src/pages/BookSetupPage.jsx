@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api';
 import BookOptionsForm from '../components/BookOptionsForm';
+import GuidelinesModal from '../components/GuidelinesModal';
+import FilePreview from '../components/FilePreview';
+import FormatInfoPanel from '../components/FormatInfoPanel';
 import {
   colors, Button, Card, Alert, Badge, Spinner, Input, Select,
   PageHeader, FileUpload, statusBadge
@@ -121,13 +124,16 @@ export default function BookSetupPage() {
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
+  // Guidelines modal
+  const [showGuidelines, setShowGuidelines] = useState(false);
+
   // ── Book options (shared with Quote Calculator) ──────────────────────────
   const [fullOptions, setFullOptions] = useState(FALLBACK_OPTIONS);
   const [optsLoading, setOptsLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
   const [bookComponents, setBookComponents] = useState(null);
 
-  // Load options on mount — try API, fall back to local data
+  // Load options on mount
   useEffect(() => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -182,9 +188,9 @@ export default function BookSetupPage() {
                 : b
             ));
             if (status === 'Ready') {
-              setSuccessMsg(`"${book.title}" has been validated and is ready to sell. Attach the product to your order form.`);
+              setSuccessMsg(`"${book.title}" has been validated and is ready to sell.`);
             } else if (status === 'Error') {
-              setError(`"${book.title}" failed validation. Please check your PDF files and try again.`);
+              setError(`"${book.title}" failed validation. Please check your PDF files.`);
             }
           }
         } catch (_) {}
@@ -197,7 +203,7 @@ export default function BookSetupPage() {
   function validateForm() {
     const errors = {};
     if (!form.title.trim()) errors.title = 'Book title is required';
-    if (!bookComponents?.podPackageId) errors.bookOptions = 'Please select all book options before uploading.';
+    if (!bookComponents?.podPackageId) errors.bookOptions = 'Please select all book options.';
     if (!form.retailPrice || isNaN(form.retailPrice) || parseFloat(form.retailPrice) <= 0)
       errors.retailPrice = 'Enter a valid retail price';
     if (!form.pageCount || isNaN(form.pageCount) || parseInt(form.pageCount) < 24)
@@ -245,7 +251,7 @@ export default function BookSetupPage() {
         retail_price: parseFloat(form.retailPrice),
         page_count: parseInt(form.pageCount)
       }]);
-      setSuccessMsg(`"${form.title}" uploaded. Validation is in progress and may take a few minutes.`);
+      setSuccessMsg(`"${form.title}" uploaded. Validation is in progress.`);
       setShowForm(false);
       setForm(EMPTY_FORM);
       setBookComponents(null);
@@ -268,6 +274,18 @@ export default function BookSetupPage() {
       setError('Could not delete book. Please try again.');
     }
   }
+
+  // ── Extract binding from podPackageId for format info ─────────────────────
+  const bindingFromPod = bookComponents?.podPackageId
+    ? bookComponents.podPackageId.split('.')[3]
+    : null;
+
+  // Extract trim from podPackageId
+  const trimFromPod = bookComponents?.podPackageId
+    ? bookComponents.podPackageId.split('.')[0].slice(1)
+    : null;
+
+  const pageCountNum = parseInt(form.pageCount) || 0;
 
   if (!locationId) {
     return (
@@ -299,7 +317,7 @@ export default function BookSetupPage() {
         )}
       />
 
-      <div style={{ padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
+      <div style={{ padding: '24px', maxWidth: '960px', margin: '0 auto' }}>
 
         {/* Notifications */}
         {successMsg && (
@@ -320,10 +338,10 @@ export default function BookSetupPage() {
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
             {[
-              { step: '1', title: 'Choose Book Options', desc: 'Select trim, binding, ink, quality, paper, and cover finish — same options as the Quote Calculator.' },
-              { step: '2', title: 'Upload Your Book', desc: 'Upload your interior and cover PDFs. Literary App validates them automatically.' },
-              { step: '3', title: 'Reader Buys', desc: 'When a reader places an order, the system automatically submits it for printing.' },
-              { step: '4', title: 'Ships Direct', desc: 'We print and ship the book directly to your reader. Flat-rate shipping applied.' }
+              { step: '1', title: 'Choose Book Options', desc: 'Select trim, binding, ink, quality, paper, and cover finish.' },
+              { step: '2', title: 'Upload Your Book', desc: 'Upload interior and cover PDFs. Validate with Lulu before submitting.' },
+              { step: '3', title: 'Reader Buys', desc: 'When a reader places an order, the system submits it for printing.' },
+              { step: '4', title: 'Ships Direct', desc: 'We print and ship directly to your reader. Flat-rate shipping applied.' }
             ].map(item => (
               <div key={item.step} style={{
                 background: colors.gray50, borderRadius: '8px', padding: '16px',
@@ -344,14 +362,22 @@ export default function BookSetupPage() {
           <div style={{ marginTop: 20, padding: '14px 16px', background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#1E40AF', marginBottom: 6 }}>Flat-Rate Shipping</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13, color: '#1D4ED8' }}>
-              <div>🇺🇸 US Domestic: <strong>${flatRateUS.toFixed(2)}</strong> (5–10 business days)</div>
-              <div>🌍 International: <strong>${flatRateIntl.toFixed(2)}</strong> (10–21 business days)</div>
-            </div>
-            <div style={{ fontSize: 11, color: '#3B82F6', marginTop: 6 }}>
-              Shipping is a flat rate included in every order. No surprise charges based on weight or distance.
+              <div>US Domestic: <strong>${flatRateUS.toFixed(2)}</strong> (5–10 business days)</div>
+              <div>International: <strong>${flatRateIntl.toFixed(2)}</strong> (10–21 business days)</div>
             </div>
           </div>
         </Card>
+
+        {/* ── Guidelines Button (always visible) ── */}
+        <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowGuidelines(true)}
+          >
+            Formatting Guidelines
+          </Button>
+        </div>
 
         {/* ── Add Book Form ── */}
         {showForm && (
@@ -366,12 +392,25 @@ export default function BookSetupPage() {
             </div>
             <form onSubmit={handleSubmit}>
 
-              {/* ── Book Options (Progressive Selection) ── */}
+              {/* ── Step 1: Book Options ── */}
               <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #F3F4F6' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</div>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.gray900 }}>Book Options</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</div>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: colors.gray900 }}>Book Options</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGuidelines(true)}
+                    style={{
+                      fontSize: 12, color: '#2563EB', background: 'none', border: 'none',
+                      cursor: 'pointer', textDecoration: 'underline', fontFamily: colors.fontFamily
+                    }}
+                  >
+                    Need help? View formatting guide
+                  </button>
                 </div>
+
                 {optsLoading && (
                   <div style={{ textAlign: 'center', padding: 24, color: colors.gray500 }}>
                     <Spinner size={20} /> <span style={{ fontSize: 13, marginLeft: 8 }}>Loading print options…</span>
@@ -398,13 +437,22 @@ export default function BookSetupPage() {
                     Selected: <strong>{bookComponents.podPackageId}</strong>
                   </div>
                 )}
+
+                {/* ── Format Info Panel (shows when options + page count selected) ── */}
+                {bookComponents?.trim && pageCountNum > 0 && (
+                  <FormatInfoPanel
+                    trim={bookComponents.trim}
+                    binding={bindingFromPod}
+                    pageCount={pageCountNum}
+                  />
+                )}
               </div>
 
-              {/* ── Book Details ── */}
+              {/* ── Step 2: Book Details ── */}
               <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #F3F4F6' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</div>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.gray900 }}>Book Details</span>
+                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</div>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: colors.gray900 }}>Book Details</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                   <div style={{ gridColumn: '1 / -1' }}>
@@ -418,10 +466,11 @@ export default function BookSetupPage() {
                   </div>
                   <Input
                     label="Page Count"
-                    type="number" min="24"
+                    type="number" min="24" step="2"
                     value={form.pageCount}
                     onChange={e => setForm(f => ({ ...f, pageCount: e.target.value }))}
                     error={formErrors.pageCount}
+                    hint="Must be an even number. Lulu will detect the actual count during validation."
                     placeholder="250"
                   />
                   <Input
@@ -443,36 +492,51 @@ export default function BookSetupPage() {
                 </div>
               </div>
 
-              {/* ── File Uploads ── */}
+              {/* ── Step 3: File Upload & Preview ── */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</div>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.gray900 }}>Upload PDF Files</span>
+                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</div>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: colors.gray900 }}>Upload &amp; Preview PDF Files</span>
                 </div>
-                <FileUpload
-                  label="Interior PDF"
-                  accept=".pdf"
-                  file={interiorFile}
-                  onChange={e => setInteriorFile(e.target.files[0])}
-                  error={formErrors.interiorFile}
-                />
-                <FileUpload
-                  label="Cover PDF"
-                  accept=".pdf"
-                  file={coverFile}
-                  onChange={e => setCoverFile(e.target.files[0])}
-                  error={formErrors.coverFile}
-                />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  <FileUpload
+                    label="Interior PDF"
+                    accept=".pdf"
+                    file={interiorFile}
+                    onChange={e => setInteriorFile(e.target.files[0])}
+                    error={formErrors.interiorFile}
+                  />
+                  <FileUpload
+                    label="Cover PDF"
+                    accept=".pdf"
+                    file={coverFile}
+                    onChange={e => setCoverFile(e.target.files[0])}
+                    error={formErrors.coverFile}
+                  />
+                </div>
+
+                {/* ── Preview Section (shows when files are uploaded) ── */}
+                {(interiorFile || coverFile) && (
+                  <FilePreview
+                    interiorFile={interiorFile}
+                    coverFile={coverFile}
+                    podPackageId={bookComponents?.podPackageId}
+                    pageCount={pageCountNum}
+                  />
+                )}
+
+                <Alert variant="info" style={{ marginTop: '16px', marginBottom: '16px' }}>
+                  Preview your PDFs above before submitting. When ready, click "Upload Book" to validate with Lulu and create the product.
+                </Alert>
               </div>
 
-              <Alert variant="info" style={{ marginBottom: '16px' }}>
-                Files will be uploaded to secure storage and validated by Literary App. Validation may take a few minutes. Do not close this page.
-              </Alert>
-              <div style={{ display: 'flex', gap: '12px' }}>
+              {/* ── Submit ── */}
+              <div style={{ display: 'flex', gap: '12px', paddingTop: '8px' }}>
                 <Button type="submit" disabled={submitting}>
                   {submitting
                     ? <><Spinner size={16} color={colors.white} />&nbsp; Uploading...</>
-                    : 'Upload Book'}
+                    : 'Upload & Validate Book'}
                 </Button>
                 <Button variant="secondary" onClick={() => { setShowForm(false); setFormErrors({}); }}>
                   Cancel
@@ -520,7 +584,7 @@ export default function BookSetupPage() {
                         display: 'flex', alignItems: 'center', gap: '8px',
                         marginTop: '8px', fontSize: '13px', color: colors.primary
                       }}>
-                        <Spinner size={14} /> Validating files with Literary App...
+                        <Spinner size={14} /> Validating files with Lulu...
                       </div>
                     )}
                     {book.status === 'Ready' && book.ghl_product_id && (
@@ -557,6 +621,9 @@ export default function BookSetupPage() {
         )}
 
       </div>
+
+      {/* ── Guidelines Modal ── */}
+      {showGuidelines && <GuidelinesModal onClose={() => setShowGuidelines(false)} />}
     </div>
   );
 }

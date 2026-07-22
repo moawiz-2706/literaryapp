@@ -84,6 +84,7 @@ app.use('/print-jobs', require('./routes/printJobs'));
 app.use('/webhooks', require('./routes/webhooks'));
 app.use('/quotes', require('./routes/quotes'));
 app.use('/workflow-action', require('./routes/workflowAction'));
+app.use('/preview', require('./routes/preview'));
 app.use('/', require('./routes/dashboard'));
 
 // ── Serve React Build in Production ──────────────────────────────────────────
