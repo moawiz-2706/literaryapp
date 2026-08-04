@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    { "source": "/print-jobs/:path*", "destination": "/print-jobs/:path*" },
+    { "source": "/books/:path*", "destination": "/books/:path*" },
+    { "source": "/analytics/:path*", "destination": "/analytics/:path*" },
+    { "source": "/health/:path*", "destination": "/health/:path*" },
+    { "source": "/royalties/:path*", "destination": "/royalties/:path*" },
+    { "source": "/lulu-integration/:path*", "destination": "/lulu-integration/:path*" },
+    { "source": "/workflow-action/:path*", "destination": "/workflow-action/:path*" },
+    { "source": "/webhooks/:path*", "destination": "/webhooks/:path*" },
+    { "source": "/quotes/:path*", "destination": "/quotes/:path*" },
+    { "source": "/oauth/:path*", "destination": "/oauth/:path*" },
+    { "source": "/preview/:path*", "destination": "/preview/:path*" },
+    { "source": "/samples/:path*", "destination": "/samples/:path*" },
+    { "source": "/stripe/:path*", "destination": "/stripe/:path*" },
+    { "source": "/dashboard/:path*", "destination": "/dashboard/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
