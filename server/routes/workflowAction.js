@@ -119,7 +119,7 @@ function buildShippingAddressFromData(data) {
   const city = (data.city || '').trim();
   const state_code = (data.state_code || data.state || '').trim().toUpperCase();
   const country_code = (data.country_code || data.country || 'US').trim().toUpperCase();
-  const postcode = (data.postcode || data.postalCode || data.zip || '').trim();
+  const postcode = (data.postal_code || data.postcode || data.postalCode || data.zip || data.zip_code || data.zipCode || '').trim();
 
   return {
     name: name || 'Customer',
