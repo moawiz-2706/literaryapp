@@ -191,28 +191,38 @@ router.post('/create-print-job', async (req, res) => {
 
   try {
     console.log('[WorkflowAction/create-print-job] Raw payload:', JSON.stringify(req.body, null, 2));
+    console.log('[WorkflowAction/create-print-job] Query params:', JSON.stringify(req.query));
 
-    const { data, extras } = req.body;
+    // GHL sends fields directly on req.body (NOT wrapped in data or extras)
+    // GHL sends locationId as a query parameter: ?locationId=...
+    const data = req.body; // fields are flat on the body
+    const extras = req.body.extras || {};
 
     // ── Extract IDs ─────────────────────────────────────────────────────
-    const locationId = extractLocationId(req.body);
-    const contactId = extractContactId(req.body);
-    const workflowId = extractWorkflowId(req.body);
-    const executionId = extras?.executionId || data?.executionId || '';
+    // Priority: query param > extras > body > data
+    let locationId = (req.query.locationId || '').trim();
+    if (!locationId) locationId = extractLocationId(req.body);
+    if (!locationId) locationId = (req.query.location_id || '').trim();
+    
+    const contactId = (req.query.contactId || '').trim() || extractContactId(req.body);
+    const workflowId = (req.query.workflowId || '').trim() || extractWorkflowId(req.body);
+    const executionId = (req.query.executionId || '').trim() || extras?.executionId || data?.executionId || '';
+
+    console.log('[WorkflowAction/create-print-job] locationId:', locationId || 'NOT FOUND');
+    console.log('[WorkflowAction/create-print-job] contactId:', contactId || 'none');
+    console.log('[WorkflowAction/create-print-job] workflowId:', workflowId || 'none');
+    console.log('[WorkflowAction/create-print-job] Body keys:', Object.keys(data));
 
     if (!locationId) {
-      console.error('[WorkflowAction/create-print-job] No locationId found');
-      console.error('[WorkflowAction] Body keys:', Object.keys(req.body));
-      console.error('[WorkflowAction] Data keys:', data ? Object.keys(data) : 'none');
-      console.error('[WorkflowAction] Extras:', JSON.stringify(extras));
+      console.error('[WorkflowAction/create-print-job] No locationId found in query, body, or extras');
       return res.status(400).json({
-        error: 'locationId is missing from the request payload',
+        error: 'locationId is missing from the request',
         status: 'Failed',
         message: 'This action must be run inside a GHL sub-account. Ensure the app is installed and the Location ID is available.',
         debug: {
-          receivedKeys: Object.keys(req.body),
-          dataKeys: data ? Object.keys(data) : [],
-          extrasKeys: extras ? Object.keys(extras) : [],
+          queryKeys: Object.keys(req.query),
+          bodyKeys: Object.keys(req.body),
+          hint: 'GHL sends locationId as a query parameter (?locationId=...). The test mode in the Developer Portal should populate this automatically.',
         }
       });
     }
@@ -222,7 +232,7 @@ router.post('/create-print-job', async (req, res) => {
     console.log('[WorkflowAction/create-print-job] workflowId:', workflowId || 'none');
 
     // ── Validate required fields ────────────────────────────────────────
-    const productName = data?.product_name || data?.product || data?.product_id;
+    const productName = data.product_name || data.product || data.product_id;
     const quantity = parseInt(data?.quantity) || 1;
     const shippingLevel = data?.shipping_level || 'MAIL';
 
