@@ -1,0 +1,59 @@
+{
+  "name": "Lulu Print Job Shipped",
+  "key": "lulu_print_job_shipped",
+  "shortDescription": "Fires when a Lulu customer print job ships and tracking information is available.",
+  "summary": "Sends contact and shipment tracking data into a GoHighLevel workflow for native email and SMS notifications.",
+  "subscriptionUrl": "https://YOUR_BACKEND_DOMAIN/workflow-trigger/subscription",
+  "subscriptionHeaders": {
+    "X-LiteraryApp-Trigger-Secret": "YOUR_GHL_TRIGGER_SUBSCRIPTION_SECRET"
+  },
+  "sampleData": {
+    "event": "LULU_PRINT_JOB_SHIPPED",
+    "triggerKey": "lulu_print_job_shipped",
+    "status": "SHIPPED",
+    "statusChangedAt": "2026-08-21T12:34:56.000Z",
+    "locationId": "ghl_location_id",
+    "contactId": "ghl_contact_id",
+    "contactName": "Jane Doe",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "trackingId": "3d4a53da-cc42-44c2-b47b-c3da8fa37491_1",
+    "trackingIds": ["3d4a53da-cc42-44c2-b47b-c3da8fa37491_1"],
+    "trackingUrl": "https://api.lulu.com/tracking/example",
+    "trackingUrls": ["https://api.lulu.com/tracking/example"],
+    "carrierName": "USPS",
+    "carrierNames": ["USPS"],
+    "luluPrintJobId": "42776",
+    "internalPrintJobId": "local-print-job-uuid",
+    "bookTitle": "Example Book",
+    "quantity": 1,
+    "shippingLevel": "MAIL"
+  },
+  "filters": [
+    {
+      "name": "Status",
+      "reference": "status",
+      "type": "select",
+      "required": true,
+      "optionType": "constants",
+      "options": [
+        { "label": "Shipped", "value": "SHIPPED" }
+      ]
+    }
+  ],
+  "customVariables": [
+    { "label": "Contact ID", "reference": "contactId", "type": "string" },
+    { "label": "Contact Name", "reference": "contactName", "type": "string" },
+    { "label": "First Name", "reference": "firstName", "type": "string" },
+    { "label": "Last Name", "reference": "lastName", "type": "string" },
+    { "label": "Tracking ID", "reference": "trackingId", "type": "string" },
+    { "label": "Tracking URL", "reference": "trackingUrl", "type": "string" },
+    { "label": "Carrier", "reference": "carrierName", "type": "string" },
+    { "label": "Lulu Print Job ID", "reference": "luluPrintJobId", "type": "string" },
+    { "label": "Internal Print Job ID", "reference": "internalPrintJobId", "type": "string" },
+    { "label": "Book Title", "reference": "bookTitle", "type": "string" },
+    { "label": "Status", "reference": "status", "type": "string" },
+    { "label": "Status Changed At", "reference": "statusChangedAt", "type": "string" },
+    { "label": "Location ID", "reference": "locationId", "type": "string" }
+  ]
+}
