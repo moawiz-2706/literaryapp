@@ -23,14 +23,23 @@ function getShippingAddress(job) {
 
 function filterMatches(filters, payload) {
   for (const filter of (Array.isArray(filters) ? filters : [])) {
-    const field = filter.field || filter.id;
-    const expected = filter.value;
+    const field = filter.field || filter.reference || filter.id || filter.key;
+    const expected = filter.value ?? filter.selectedValue ?? filter.values;
     if (!field || expected === undefined || expected === null || expected === '') continue;
 
     const actual = payload[field];
-    const operator = filter.operator || '==';
-    if (operator === '!=' && String(actual) === String(expected)) return false;
-    if (operator !== '!=' && String(actual) !== String(expected)) return false;
+    const operator = String(filter.operator || filter.condition || '==').toLowerCase();
+    const expectedValues = Array.isArray(expected) ? expected.map(String) : [String(expected)];
+    const actualValue = actual == null ? '' : String(actual);
+    const equal = expectedValues.includes(actualValue);
+
+    if (operator === '!=' || operator === 'not_equal' || operator === 'not_equals') {
+      if (equal) return false;
+    } else if (operator === 'contains') {
+      if (!expectedValues.some(value => actualValue.includes(value))) return false;
+    } else if (!equal) {
+      return false;
+    }
   }
   return true;
 }
