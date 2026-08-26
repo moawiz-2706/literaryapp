@@ -14,6 +14,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const statusDb = require('../db/statusDb');
 const lulu = require('../services/luluService');
 
 // ── GET /credentials?locationId=... ──────────────────────────────────────────
@@ -79,9 +80,18 @@ router.post('/credentials', async (req, res) => {
 
     // Register Lulu webhook now that credentials are available
     try {
-      const webhookUrl = `${process.env.APP_BASE_URL}/webhooks/lulu?locationId=${locationId}`;
-      await lulu.registerWebhook(webhookUrl, locationId);
-      console.log(`[LuluIntegration] Lulu webhook registered for location: ${locationId}`);
+      const webhookUrl = `${process.env.APP_BASE_URL}/webhooks/lulu?locationId=${encodeURIComponent(locationId)}`;
+      const registration = await lulu.registerWebhook(webhookUrl, locationId);
+      await statusDb.upsertLuluWebhook(locationId, {
+        lulu_webhook_id: registration?.id || null,
+        url: webhookUrl,
+        target_url: webhookUrl,
+        topics: registration?.topics || ['PRINT_JOB_STATUS_CHANGED'],
+        is_active: registration?.is_active !== false,
+        remote_active: registration?.is_active !== false,
+        last_error: null,
+      });
+      console.log(`[LuluIntegration] Lulu webhook registered and persisted for location: ${locationId}`);
     } catch (webhookErr) {
       console.warn(`[LuluIntegration] Webhook registration warning:`, webhookErr.message);
     }

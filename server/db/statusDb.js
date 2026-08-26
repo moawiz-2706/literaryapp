@@ -295,16 +295,34 @@ async function getPrintJobByIdempotencyKey(locationId, idempotencyKey) {
 
 // ── Webhook bookkeeping ─────────────────────────────────────────────────────────
 
-async function upsertLuluWebhook(locationId, entry) {
-  const { error } = await supabase.from('lulu_webhooks').upsert(
-    {
-      location_id: locationId,
-      ...entry,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'location_id' }
-  );
+async function upsertLuluWebhook(locationId, entry = {}) {
+  const payload = {
+    location_id: locationId,
+    ...entry,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Event-health updates do not carry the required webhook URL. Update an
+  // existing registration row instead of attempting an INSERT that violates
+  // lulu_webhooks.url NOT NULL.
+  if (!Object.prototype.hasOwnProperty.call(entry, 'url')) {
+    const { data, error } = await supabase
+      .from('lulu_webhooks')
+      .update(payload)
+      .eq('location_id', locationId)
+      .select()
+      .maybeSingle();
+    if (error) throw new Error(`updateLuluWebhook failed: ${error.message}`);
+    return data || null;
+  }
+
+  const { data, error } = await supabase
+    .from('lulu_webhooks')
+    .upsert(payload, { onConflict: 'location_id' })
+    .select()
+    .single();
   if (error) throw new Error(`upsertLuluWebhook failed: ${error.message}`);
+  return data;
 }
 
 async function getLuluWebhooks() {
@@ -406,7 +424,7 @@ async function getWebhookHealth(locationId) {
   return {
     webhookRegistered: true,
     remoteActive: webhook.remote_active !== false,
-    webhookId: webhook.webhook_id || null,
+    webhookId: webhook.lulu_webhook_id || webhook.webhook_id || null,
     targetUrl: webhook.target_url || null,
     lastWebhookEventAt: webhook.last_event_at || null,
     lastWebhookEventType: webhook.last_event_type || null,

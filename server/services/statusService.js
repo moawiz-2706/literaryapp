@@ -101,6 +101,23 @@ function mapLuluStatusToLocal(luluStatus) {
 
 // ── Transition recording (single writer) ─────────────────────────────────────────
 
+function scheduleShippedEmission({ jobId, locationId, tracking, changedAt }) {
+  if (!jobId || !locationId) return;
+  const triggerService = require('./ghlTriggerService');
+  setImmediate(() => {
+    triggerService.emitPrintJobShipped({
+      jobId,
+      locationId,
+      tracking,
+      changedAt,
+    }).then(result => {
+      console.log(`[GHL Trigger] SHIPPED emission result for job ${jobId}: ${result?.emitted ? 'emitted' : result?.reason || 'not emitted'}`);
+    }).catch(err => {
+      console.warn(`[GHL Trigger] SHIPPED emission failed for job ${jobId}:`, err.message);
+    });
+  });
+}
+
 /**
  * Record a status transition for a job. Dedupes by (job_id, lulu_status,
  * changed_at, source) so repeated webhook deliveries are harmless. Updates
@@ -135,6 +152,12 @@ async function recordTransition({
   });
 
   if (!row) {
+    // A replayed SHIPPED observation can still need delivery when the GHL
+    // subscription was created after the original transition. The delivery
+    // ledger deduplicates the resulting event per subscription/event key.
+    if (luluStatus === 'SHIPPED') {
+      scheduleShippedEmission({ jobId, locationId, tracking, changedAt });
+    }
     return { changed: false, row: null, tracking };
   }
 
@@ -151,16 +174,11 @@ async function recordTransition({
   // Keeping this outside the status write means a GHL outage cannot block Lulu
   // processing, CRM stage sync, or reconciliation.
   if (luluStatus === 'SHIPPED') {
-    const triggerService = require('./ghlTriggerService');
-    setImmediate(() => {
-      triggerService.emitPrintJobShipped({
-        jobId,
-        locationId,
-        tracking,
-        changedAt: row?.changed_at || changedAt,
-      }).catch(err => {
-        console.warn(`[GHL Trigger] SHIPPED emission failed for job ${jobId}:`, err.message);
-      });
+    scheduleShippedEmission({
+      jobId,
+      locationId,
+      tracking,
+      changedAt: row?.changed_at || changedAt,
     });
   }
 

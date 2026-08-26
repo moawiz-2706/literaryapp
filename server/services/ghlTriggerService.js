@@ -80,7 +80,12 @@ function buildPayload(job, tracking, changedAt) {
 }
 
 async function deliverOnce(subscription, delivery, payload) {
-  const attemptCount = Number(delivery.attempt_count || 0) + 1;
+  const claimed = await triggerDb.claimDelivery(delivery.id);
+  if (!claimed) {
+    return { delivered: false, skipped: true, reason: 'delivery_claimed_by_another_worker' };
+  }
+
+  const attemptCount = Number(claimed.attempt_count || 0) + 1;
   await triggerDb.updateDelivery(delivery.id, {
     status: 'sending',
     attempt_count: attemptCount,
@@ -148,6 +153,7 @@ async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt
   const resolvedLocationId = locationId || job.location_id;
   const payload = buildPayload({ ...job, location_id: resolvedLocationId }, tracking, changedAt);
   const subscriptions = await triggerDb.getActiveSubscriptions(resolvedLocationId, SHIPPED_TRIGGER_KEY);
+  console.log(`[GHL Trigger] Job ${job.id}: found ${subscriptions.length} active subscription(s) for location ${resolvedLocationId}`);
   if (subscriptions.length === 0) {
     return { emitted: false, reason: 'no_active_subscriptions', payload };
   }
@@ -157,6 +163,7 @@ async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt
 
   for (const subscription of subscriptions) {
     if (!filterMatches(subscription.filters, payload)) {
+      console.warn(`[GHL Trigger] Job ${job.id}: subscription ${subscription.id} skipped because filters did not match payload status=${payload.status}`);
       results.push({ subscriptionId: subscription.id, skipped: true, reason: 'filter_mismatch' });
       continue;
     }
@@ -177,6 +184,11 @@ async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt
     }
 
     const result = await deliverWithRetry(subscription, delivery, payload);
+    if (result.delivered) {
+      console.log(`[GHL Trigger] Job ${job.id}: delivered SHIPPED event to subscription ${subscription.id} with HTTP ${result.status}`);
+    } else {
+      console.warn(`[GHL Trigger] Job ${job.id}: failed SHIPPED delivery to subscription ${subscription.id}`);
+    }
     results.push({ subscriptionId: subscription.id, ...result });
   }
 

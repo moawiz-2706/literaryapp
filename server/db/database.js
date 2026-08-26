@@ -200,7 +200,12 @@ async function createPrintJob(job) {
     workflow_id:              job.workflowId || null,
     execution_id:             job.executionId || null,
     parent_job_id:            job.parentJobId || null,
-    lulu_status:              job.luluStatus || null
+    lulu_status:              job.luluStatus || null,
+    idempotency_key:          job.idempotencyKey || null,
+    external_id:              job.externalId || (job.id ? `literaryapp-order-${job.id}` : null),
+    tracking:                 job.tracking || [],
+    estimated_shipping_dates: job.estimatedShippingDates || null,
+    lulu_costs:               job.luluCosts || null
   };
 
   // Only add fulfillment_fee if the job has it set
@@ -228,8 +233,12 @@ async function createPrintJob(job) {
       continue;
     }
 
-    // If it's a different error (not a missing column), throw immediately
-    throw new Error(`createPrintJob failed: ${error.message}`);
+    // If it's a different error (not a missing column), preserve the
+    // PostgREST/Postgres code so callers can handle unique idempotency races.
+    const wrapped = new Error(`createPrintJob failed: ${error.message}`);
+    wrapped.code = error.code;
+    wrapped.details = error.details;
+    throw wrapped;
   }
 
   throw new Error(`createPrintJob failed after ${MAX_RETRIES} retries — too many missing columns`);
@@ -263,11 +272,13 @@ async function updatePrintJob(jobId, updates) {
   throw new Error(`updatePrintJob failed after ${maxAttempts} retries`);
 }
 
-async function getPrintJobByLuluId(luluPrintJobId) {
+async function getPrintJobByLuluId(luluPrintJobId, locationId) {
+  if (!luluPrintJobId || !locationId) return null;
   const { data, error } = await supabase
     .from('print_jobs')
     .select('*')
-    .eq('lulu_print_job_id', luluPrintJobId)
+    .eq('lulu_print_job_id', String(luluPrintJobId))
+    .eq('location_id', String(locationId))
     .single();
   if (error && error.code === 'PGRST116') return null;
   if (error) throw new Error(`getPrintJobByLuluId failed: ${error.message}`);

@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const statusDb = require('../db/statusDb');
 const ghl = require('../services/ghlService');
 
 // ── GHL OAuth Callback ────────────────────────────────────────────────────────
@@ -99,9 +100,18 @@ router.get('/callback', async (req, res) => {
         const creds = await db.getLuluCredentials(locationId);
         if (creds) {
           const lulu = require('../services/luluService');
-          const webhookUrl = `${process.env.APP_BASE_URL}/webhooks/lulu?locationId=${locationId}`;
-          await lulu.registerWebhook(webhookUrl, locationId);
-          console.log(`[OAuth] Lulu webhook registered for location: ${locationId}`);
+          const webhookUrl = `${process.env.APP_BASE_URL}/webhooks/lulu?locationId=${encodeURIComponent(locationId)}`;
+          const registration = await lulu.registerWebhook(webhookUrl, locationId);
+          await statusDb.upsertLuluWebhook(locationId, {
+            lulu_webhook_id: registration?.id || null,
+            url: webhookUrl,
+            target_url: webhookUrl,
+            topics: registration?.topics || ['PRINT_JOB_STATUS_CHANGED'],
+            is_active: registration?.is_active !== false,
+            remote_active: registration?.is_active !== false,
+            last_error: null,
+          });
+          console.log(`[OAuth] Lulu webhook registered and persisted for location: ${locationId}`);
         } else {
           console.log(`[OAuth] Skipping Lulu webhook registration for ${locationId} - credentials not yet configured. Will register when credentials are saved.`);
         }
@@ -183,9 +193,18 @@ router.post('/webhook', async (req, res) => {
           const creds = await db.getLuluCredentials(locationId);
           if (creds) {
             const lulu = require('../services/luluService');
-            const webhookUrl = `${process.env.APP_BASE_URL}/webhooks/lulu?locationId=${locationId}`;
-            await lulu.registerWebhook(webhookUrl, locationId);
-            console.log(`[OAuth Webhook] Lulu webhook registered for ${locationId}`);
+            const webhookUrl = `${process.env.APP_BASE_URL}/webhooks/lulu?locationId=${encodeURIComponent(locationId)}`;
+            const registration = await lulu.registerWebhook(webhookUrl, locationId);
+            await statusDb.upsertLuluWebhook(locationId, {
+              lulu_webhook_id: registration?.id || null,
+              url: webhookUrl,
+              target_url: webhookUrl,
+              topics: registration?.topics || ['PRINT_JOB_STATUS_CHANGED'],
+              is_active: registration?.is_active !== false,
+              remote_active: registration?.is_active !== false,
+              last_error: null,
+            });
+            console.log(`[OAuth Webhook] Lulu webhook registered and persisted for ${locationId}`);
           } else {
             console.log(`[OAuth Webhook] Skipping Lulu webhook for ${locationId} - credentials not yet configured.`);
           }

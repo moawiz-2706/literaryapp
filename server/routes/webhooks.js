@@ -38,7 +38,12 @@ const { placeOrder } = require('../services/orderService');
 // only the location's own client_secret can verify its events.
 
 router.post('/lulu', async (req, res) => {
-  const locationId = req.query.locationId;
+  const locationId = String(req.query.locationId || '').trim();
+
+  if (!locationId) {
+    await db.logWebhook('lulu', 'REJECTED', { query: req.query }, 'Missing locationId query parameter');
+    return res.status(400).json({ error: 'locationId query parameter is required' });
+  }
 
   // Lulu HMAC header: "Lulu-HMAC-SHA256"
   const signatureHeader = req.headers['lulu-hmac-sha256'] || '';
@@ -113,13 +118,17 @@ async function processLuluWebhook(payload, locationId) {
       return;
     }
 
-    const job = await db.getPrintJobByLuluId(luluJobId);
+    const job = await db.getPrintJobByLuluId(luluJobId, locationId);
     if (!job) {
-      console.warn(`[Webhook/Lulu] No local job found for Lulu ID: ${luluJobId}`);
+      console.warn(`[Webhook/Lulu] No local job found for Lulu ID ${luluJobId} in location ${locationId}`);
+      return;
+    }
+    if (String(job.location_id) !== String(locationId)) {
+      console.warn(`[Webhook/Lulu] Location mismatch for Lulu ID ${luluJobId}: ${job.location_id} != ${locationId}`);
       return;
     }
 
-    const resolvedLocationId = locationId || job.location_id;
+    const resolvedLocationId = locationId;
     const tracking = lulu.extractTracking(payload.data || {});
     const trackingUrls = tracking.map(t => t.url).filter(Boolean);
 

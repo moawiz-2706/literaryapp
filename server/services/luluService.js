@@ -28,6 +28,7 @@
 
 const axios = require('axios');
 const db = require('../db/database');
+const statusDb = require('../db/statusDb');
 const { resolveStateCode } = require('../db/stateResolver');
 
 const LULU_SANDBOX = process.env.LULU_SANDBOX === 'true';
@@ -996,14 +997,32 @@ async function restoreWebhookSubscription(locationId) {
   const subs = Array.isArray(remote?.results) ? remote.results : (Array.isArray(remote) ? remote : []);
 
   // 1. Try to activate an existing deactivated subscription
-  const deactivated = subs.find(s => s.active === false);
+  const deactivated = subs.find(s => s.is_active === false || s.active === false);
   if (deactivated) {
-    await patchWebhook(deactivated.id, { active: true }, locationId);
-    return { reactivated: true, webhookId: deactivated.id, method: 'patch_activate' };
+    const updated = await patchWebhook(deactivated.id, { is_active: true }, locationId);
+    await statusDb.upsertLuluWebhook(locationId, {
+      lulu_webhook_id: updated?.id || deactivated.id,
+      url: updated?.url || deactivated.url || webhookUrl,
+      target_url: updated?.url || deactivated.url || webhookUrl,
+      topics: updated?.topics || deactivated.topics || ['PRINT_JOB_STATUS_CHANGED'],
+      is_active: updated?.is_active !== false,
+      remote_active: updated?.is_active !== false,
+      last_error: null,
+    });
+    return { reactivated: true, webhookId: updated?.id || deactivated.id, method: 'patch_activate' };
   }
 
   // 2. Otherwise register fresh (idempotent on the URL per Lulu's docs)
   const registered = await registerWebhook(webhookUrl, locationId);
+  await statusDb.upsertLuluWebhook(locationId, {
+    lulu_webhook_id: registered?.id || null,
+    url: registered?.url || webhookUrl,
+    target_url: registered?.url || webhookUrl,
+    topics: registered?.topics || ['PRINT_JOB_STATUS_CHANGED'],
+    is_active: registered?.is_active !== false,
+    remote_active: registered?.is_active !== false,
+    last_error: null,
+  });
   return { reactivated: true, webhookId: registered?.id || null, method: 'reregister' };
 }
 

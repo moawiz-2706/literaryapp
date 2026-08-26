@@ -106,6 +106,22 @@ async function ensureDelivery({ subscriptionId, eventKey, payload }) {
   return existing.data || null;
 }
 
+async function claimDelivery(deliveryId) {
+  const { data, error } = await supabase
+    .from('ghl_trigger_deliveries')
+    .update({
+      status: 'sending',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', deliveryId)
+    .in('status', ['pending', 'failed'])
+    .select()
+    .maybeSingle();
+
+  if (error) throw new Error(`claimDelivery failed: ${error.message}`);
+  return data || null;
+}
+
 async function updateDelivery(deliveryId, updates) {
   const payload = { ...updates, updated_at: new Date().toISOString() };
   const { data, error } = await supabase
@@ -125,4 +141,5 @@ module.exports = {
   deactivateSubscription,
   ensureDelivery,
   updateDelivery,
+  claimDelivery,
 };
