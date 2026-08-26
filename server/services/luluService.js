@@ -533,7 +533,8 @@ async function createPrintJob(orderData) {
   const payload = {
     contact_email:   contactEmail,
     external_id:     lineItem.external_id,
-    production_delay: Math.min(2880, Math.max(60, parseInt(process.env.LULU_PRODUCTION_DELAY) || 60)),
+    // production_delay: Math.min(2880, Math.max(60, parseInt(process.env.LULU_PRODUCTION_DELAY) || 60)),
+    production_delay:0,
     line_items: [lineItem],
     shipping_address: shippingAddress,
     shipping_level:  orderData.shippingLevel || 'MAIL'
