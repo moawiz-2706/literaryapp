@@ -75,6 +75,9 @@ router.post('/credentials', async (req, res) => {
       clientSecret,
       environment || 'sandbox'
     );
+    // Do not let a still-valid token from the previous credentials route new
+    // orders to the wrong Lulu account or environment.
+    await lulu.invalidateLocationToken(locationId);
 
     console.log(`[LuluIntegration] Credentials saved for location: ${locationId}`);
 

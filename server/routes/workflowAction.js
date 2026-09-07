@@ -65,44 +65,59 @@ function extractWorkflowId(body) {
   return null;
 }
 
-// ── Helper: Find book by GHL product name ────────────────────────────────────
+// ── Helper: Normalize GHL Internal Reference product values ──────────────────
+// GHL may send the selected product as a string ID/name or an object with an
+// ID/name field, depending on the Marketplace action version.
+function productReferenceCandidates(productInput) {
+  if (productInput === undefined || productInput === null || productInput === '') return [];
+  if (Array.isArray(productInput)) return productInput.flatMap(productReferenceCandidates);
+  if (typeof productInput === 'object') {
+    return [
+      productInput.id,
+      productInput._id,
+      productInput.productId,
+      productInput.product_id,
+      productInput.value,
+      productInput.name,
+      productInput.title,
+    ].flatMap(productReferenceCandidates);
+  }
+  return [String(productInput).trim()].filter(Boolean);
+}
 
-async function findBookByProductName(locationId, productName) {
-  if (!productName) return null;
+// ── Helper: Find book by GHL product reference or title ─────────────────────
+async function findBookByProductName(locationId, productInput) {
+  const candidates = productReferenceCandidates(productInput);
+  if (candidates.length === 0) return null;
 
   const allBooks = await db.getBooksByLocation(locationId);
 
-  // Strategy 1: Exact match
-  let match = allBooks.find(b => b.title === productName);
+  // Match the stable Global Product ID first.
+  let match = allBooks.find(b => candidates.some(candidate => b.ghl_product_id === candidate));
   if (match) return match;
 
-  // Strategy 2: Case-insensitive match
-  const lowerName = productName.toLowerCase().trim();
-  match = allBooks.find(b => b.title && b.title.toLowerCase().trim() === lowerName);
-  if (match) return match;
-
-  // Strategy 3: Partial match
-  match = allBooks.find(b => {
-    const titleLower = (b.title || '').toLowerCase().trim();
-    return titleLower && (lowerName.includes(titleLower) || titleLower.includes(lowerName));
-  });
-  if (match) return match;
-
-  // Strategy 4: Match by ghl_product_id (GHL's "Select Product" field sends
-  // the 24-hex GHL product id, e.g. 6a72431f1d52072776bfc022)
-  if (/^[0-9a-f]{24}$/i.test(productName) || productName.startsWith('prod_')) {
-    match = allBooks.find(b => b.ghl_product_id === productName);
+  for (const productName of candidates) {
+    match = allBooks.find(b => b.title === productName);
     if (match) return match;
+
+    const lowerName = productName.toLowerCase().trim();
+    match = allBooks.find(b => b.title && b.title.toLowerCase().trim() === lowerName);
+    if (match) return match;
+
+    match = allBooks.find(b => {
+      const titleLower = (b.title || '').toLowerCase().trim();
+      return titleLower && (lowerName.includes(titleLower) || titleLower.includes(lowerName));
+    });
+    if (match) return match;
+
+    const metaMatch = productName.match(/<!--LULU_META:\{"book_id":"([^"]+)\}:LULU_META-->/);
+    if (metaMatch) {
+      match = allBooks.find(b => b.id === metaMatch[1]);
+      if (match) return match;
+    }
   }
 
-  // Strategy 5: Match by ghl_product_id from LULU_META in description
-  const metaMatch = productName.match(/<!--LULU_META:\{"book_id":"([^"]+)"\}:LULU_META-->/);
-  if (metaMatch) {
-    const bookId = metaMatch[1];
-    return allBooks.find(b => b.id === bookId) || null;
-  }
-
-  console.warn(`[WorkflowAction] Could not find book matching product name: "${productName}"`);
+  console.warn(`[WorkflowAction] Could not find book matching product reference: ${JSON.stringify(productInput)}`);
   console.warn(`[WorkflowAction] Available books for location ${locationId}:`, allBooks.map(b => `"${b.title}"`).join(', '));
   return null;
 }
@@ -252,7 +267,8 @@ router.post('/create-print-job', async (req, res) => {
     console.log('[WorkflowAction/create-print-job] workflowId:', workflowId || 'none');
 
     // ── Validate required fields ────────────────────────────────────────
-    const productName = data.product_name || data.product || data.product_id;
+    const productInput = data.product_name || data.product || data.product_id;
+    const productName = productReferenceCandidates(productInput)[0] || '';
     const quantity = parseInt(data?.quantity) || 1;
     const shippingLevel = data?.shipping_level || 'MAIL';
 
@@ -280,7 +296,7 @@ router.post('/create-print-job', async (req, res) => {
       });
     }
 
-    console.log('[WorkflowAction/create-print-job] product_name:', productName);
+    console.log('[WorkflowAction/create-print-job] product reference:', JSON.stringify(productInput));
     console.log('[WorkflowAction/create-print-job] quantity:', quantity, 'shipping_level:', shippingLevel);
 
     // ── Find the book by product name ───────────────────────────────────
@@ -288,7 +304,7 @@ router.post('/create-print-job', async (req, res) => {
     // 6a72431f1d52072776bfc022), NOT the product name. findBookByProductName
     // therefore matches ghl_product_id as the primary strategy before
     // falling back to title matching.
-    const book = await findBookByProductName(locationId, productName);
+    const book = await findBookByProductName(locationId, productInput);
     if (!book) {
       return res.status(404).json({
         error: 'Book not found',
@@ -434,19 +450,6 @@ router.post('/create-print-job', async (req, res) => {
       costs: costBreakdown,
     }));
 
-    // ── Create GHL opportunity ──────────────────────────────────────────
-    if (!orderResult.idempotent) {
-      try {
-        const opp = await ghl.createOpportunity(locationId, contactId, book.title);
-        if (opp?.id) {
-          await db.updatePrintJob(jobId, { ghlOpportunityId: opp.id });
-          console.log('[WorkflowAction/create-print-job] Opportunity created:', opp.id);
-        }
-      } catch (oppErr) {
-        console.warn('[WorkflowAction/create-print-job] Opportunity creation failed (non-critical):', oppErr.message);
-      }
-    }
-
     // ── Tag the contact ─────────────────────────────────────────────────
     try {
       if (contactId) {
@@ -455,20 +458,6 @@ router.post('/create-print-job', async (req, res) => {
       }
     } catch (tagErr) {
       console.warn('[WorkflowAction/create-print-job] Tagging failed (non-critical):', tagErr.message);
-    }
-
-    // ── Update GHL contact custom fields ────────────────────────────────
-    try {
-      if (contactId) {
-        await ghl.writeOrderCustomFields(locationId, contactId, {
-          fulfillmentStatus: 'Submitted',
-          luluPrintJobId: luluResult.id,
-          orderTotalCost: parseFloat((costBreakdown?.totalCost || 0).toFixed(2)),
-        });
-        console.log('[WorkflowAction/create-print-job] Contact custom fields updated');
-      }
-    } catch (fieldErr) {
-      console.warn('[WorkflowAction/create-print-job] Custom field update failed (non-critical):', fieldErr.message);
     }
 
     // ── Return output variables ─────────────────────────────────────────

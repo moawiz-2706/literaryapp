@@ -87,6 +87,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // ── Logging ───────────────────────────────────────────────────────────────────
 app.use(morgan('combined'));
 
+// Keep platform health probes independent of Supabase and Lulu availability.
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true, service: 'literaryapp-lulu-middleware' });
+});
+
 // ── Installation Validation ───────────────────────────────────────────────────
 // Centralized app-installation check: every data route below requires the
 // Literary App to be installed for the locationId on the request. The OAuth

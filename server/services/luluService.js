@@ -154,6 +154,16 @@ async function getLuluTokenLegacy(locationId, forceRefresh = false) {
   return result.accessToken;
 }
 
+async function invalidateLocationToken(locationId) {
+  if (!locationId) return;
+  tokenCaches.delete(locationId);
+  inFlightTokens.delete(`${locationId}:normal`);
+  inFlightTokens.delete(`${locationId}:force`);
+  if (typeof db.deleteLuluTokenForLocation === 'function') {
+    await db.deleteLuluTokenForLocation(locationId);
+  }
+}
+
 function headers(token) {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
@@ -543,7 +553,7 @@ async function createPrintJob(orderData) {
 
   if (!payload.shipping_address.street2) delete payload.shipping_address.street2;
 
-  console.log('[Lulu] Creating print job for location:', locationId);
+  console.log('[Lulu] Creating print job for location:', locationId, 'API environment:', baseUrl);
   console.log('[Lulu] Print job payload:', JSON.stringify({
     contact_email: payload.contact_email,
     external_id: payload.external_id,
@@ -950,6 +960,7 @@ function extractCosts(jobDetail) {
 module.exports = {
   getLuluToken,
   getLuluTokenLegacy,
+  invalidateLocationToken,
   validateShippingAddress,
   validateInteriorFile,
   validateCoverFile,

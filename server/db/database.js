@@ -400,6 +400,14 @@ async function getLatestLuluTokenForLocation(locationId) {
   return data;
 }
 
+async function deleteLuluTokenForLocation(locationId) {
+  const { error } = await supabase
+    .from('lulu_tokens_location')
+    .delete()
+    .eq('location_id', locationId);
+  if (error) throw new Error(`deleteLuluTokenForLocation failed: ${error.message}`);
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function camelToSnake(str) {
@@ -413,7 +421,7 @@ module.exports = {
   upsertGhlToken, getGhlToken, getAllGhlTokens, deleteGhlToken,
   storeLuluToken, getLatestLuluToken,
   upsertLuluCredentials, getLuluCredentials, deleteLuluCredentials,
-  storeLuluTokenForLocation, getLatestLuluTokenForLocation,
+  storeLuluTokenForLocation, getLatestLuluTokenForLocation, deleteLuluTokenForLocation,
   getNextBookNumber, createBook, updateBook, getBook, getBooksByLocation,
   createPrintJob, updatePrintJob, getPrintJobByLuluId, getPrintJobByContactAndBook,
   getPrintJobsByLocation, getPrintJobById,
