@@ -4,6 +4,8 @@ const triggerDb = require('../db/triggerDb');
 
 const SHIPPED_TRIGGER_KEY = 'lulu_print_job_shipped';
 const SHIPPED_EVENT_NAME = 'LULU_PRINT_JOB_SHIPPED';
+const STATUS_TRIGGER_KEY = 'lulu_print_job_status_changed';
+const STATUS_EVENT_NAME = 'LULU_PRINT_JOB_STATUS_CHANGED';
 const DELIVERY_TIMEOUT_MS = 8000;
 const MAX_DELIVERY_ATTEMPTS = 3;
 
@@ -21,22 +23,55 @@ function getShippingAddress(job) {
   }
 }
 
+/**
+ * HighLevel Internal Reference filters may arrive as a scalar ID, an array,
+ * or an object containing an ID/name. Normalize all of those representations
+ * before comparing them with the outgoing payload.
+ */
+function comparableValues(value) {
+  if (value === undefined || value === null || value === '') return [];
+  if (Array.isArray(value)) return value.flatMap(comparableValues);
+  if (typeof value === 'object') {
+    return [
+      value.id,
+      value._id,
+      value.productId,
+      value.product_id,
+      value.value,
+      value.name,
+      value.title,
+    ].flatMap(comparableValues);
+  }
+  return [String(value).trim()];
+}
+
 function filterMatches(filters, payload) {
   for (const filter of (Array.isArray(filters) ? filters : [])) {
     const field = filter.field || filter.reference || filter.id || filter.key;
     const expected = filter.value ?? filter.selectedValue ?? filter.values;
     if (!field || expected === undefined || expected === null || expected === '') continue;
 
-    const actual = payload[field];
+    // Older Marketplace configurations used reference=bookTitle while loading
+    // values from Global Products. Match both the exact title and the product
+    // ID so those existing subscriptions continue to work after the payload
+    // gains the explicit ghlProductId field.
+    const actual = field === 'bookTitle'
+      ? [payload.bookTitle, payload.ghlProductId]
+      : payload[field];
     const operator = String(filter.operator || filter.condition || '==').toLowerCase();
-    const expectedValues = Array.isArray(expected) ? expected.map(String) : [String(expected)];
-    const actualValue = actual == null ? '' : String(actual);
-    const equal = expectedValues.includes(actualValue);
+    const expectedValues = comparableValues(expected);
+    const actualValues = comparableValues(actual);
+    const equal = expectedValues.some(expectedValue => actualValues.some(actualValue => (
+      expectedValue === actualValue || expectedValue.toLowerCase() === actualValue.toLowerCase()
+    )));
 
     if (operator === '!=' || operator === 'not_equal' || operator === 'not_equals') {
       if (equal) return false;
     } else if (operator === 'contains') {
-      if (!expectedValues.some(value => actualValue.includes(value))) return false;
+      const contains = expectedValues.some(expectedValue => actualValues.some(actualValue => (
+        actualValue.toLowerCase().includes(expectedValue.toLowerCase())
+      )));
+      if (!contains) return false;
     } else if (!equal) {
       return false;
     }
@@ -44,7 +79,7 @@ function filterMatches(filters, payload) {
   return true;
 }
 
-function buildPayload(job, tracking, changedAt) {
+function buildPayload(job, tracking, changedAt, options = {}) {
   const address = getShippingAddress(job);
   const contactName = String(job.reader_name || address.name || '').trim();
   const nameParts = contactName.split(/\s+/).filter(Boolean);
@@ -54,11 +89,14 @@ function buildPayload(job, tracking, changedAt) {
   const trackingIds = trackingItems.map(item => item?.id).filter(Boolean).map(String);
   const trackingUrls = trackingItems.map(item => item?.url).filter(Boolean).map(String);
   const carrierNames = trackingItems.map(item => item?.carrier).filter(Boolean).map(String);
+  const status = String(options.status || job.lulu_status || 'SHIPPED').toUpperCase();
+  const triggerKey = options.triggerKey || SHIPPED_TRIGGER_KEY;
+  const eventName = options.eventName || SHIPPED_EVENT_NAME;
 
   return {
-    event: SHIPPED_EVENT_NAME,
-    triggerKey: SHIPPED_TRIGGER_KEY,
-    status: 'SHIPPED',
+    event: eventName,
+    triggerKey,
+    status,
     statusChangedAt: changedAt || new Date().toISOString(),
     locationId: job.location_id,
     contactId: job.contact_id || null,
@@ -74,12 +112,27 @@ function buildPayload(job, tracking, changedAt) {
     luluPrintJobId: job.lulu_print_job_id || null,
     internalPrintJobId: job.id,
     bookTitle: job.book_title || '',
+    // This is the actual GHL Global Product ID created for the book.
+    ghlProductId: job.ghl_product_id || null,
     quantity: job.quantity || 1,
     shippingLevel: job.shipping_level || null,
   };
 }
 
-async function deliverOnce(subscription, delivery, payload) {
+async function enrichJobWithProduct(job) {
+  if (!job || job.ghl_product_id || !job.book_id) return job;
+  try {
+    const book = await db.getBook(job.book_id);
+    if (book?.ghl_product_id) {
+      return { ...job, ghl_product_id: book.ghl_product_id };
+    }
+  } catch (error) {
+    console.warn(`[GHL Trigger] Could not resolve Global Product ID for job ${job.id}:`, error.message);
+  }
+  return job;
+}
+
+async function deliverOnce(subscription, delivery, payload, eventName) {
   const claimed = await triggerDb.claimDelivery(delivery.id);
   if (!claimed) {
     return { delivered: false, skipped: true, reason: 'delivery_claimed_by_another_worker' };
@@ -97,7 +150,7 @@ async function deliverOnce(subscription, delivery, payload) {
       timeout: DELIVERY_TIMEOUT_MS,
       headers: {
         'Content-Type': 'application/json',
-        'X-LiteraryApp-Event': SHIPPED_EVENT_NAME,
+        'X-LiteraryApp-Event': eventName,
       },
       validateStatus: () => true,
     });
@@ -125,10 +178,10 @@ async function deliverOnce(subscription, delivery, payload) {
   }
 }
 
-async function deliverWithRetry(subscription, delivery, payload) {
+async function deliverWithRetry(subscription, delivery, payload, eventName) {
   let current = delivery;
   for (let attempt = 0; attempt < MAX_DELIVERY_ATTEMPTS; attempt += 1) {
-    const result = await deliverOnce(subscription, current, payload);
+    const result = await deliverOnce(subscription, current, payload, eventName);
     if (result.delivered) return result;
     if (attempt < MAX_DELIVERY_ATTEMPTS - 1) {
       await sleep(500 * (2 ** attempt));
@@ -138,10 +191,10 @@ async function deliverWithRetry(subscription, delivery, payload) {
   return { delivered: false };
 }
 
-async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt }) {
-  const job = await db.getPrintJobById(jobId);
+async function emitForTrigger({ jobId, locationId, tracking = [], changedAt, status, triggerKey, eventName }) {
+  let job = await db.getPrintJobById(jobId);
   if (!job) {
-    console.warn(`[GHL Trigger] Cannot emit SHIPPED event; job ${jobId} was not found.`);
+    console.warn(`[GHL Trigger] Cannot emit ${eventName}; job ${jobId} was not found.`);
     return { emitted: false, reason: 'job_not_found' };
   }
 
@@ -150,20 +203,26 @@ async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt
     return { emitted: false, reason: 'non_customer_order' };
   }
 
+  job = await enrichJobWithProduct(job);
   const resolvedLocationId = locationId || job.location_id;
-  const payload = buildPayload({ ...job, location_id: resolvedLocationId }, tracking, changedAt);
-  const subscriptions = await triggerDb.getActiveSubscriptions(resolvedLocationId, SHIPPED_TRIGGER_KEY);
-  console.log(`[GHL Trigger] Job ${job.id}: found ${subscriptions.length} active subscription(s) for location ${resolvedLocationId}`);
+  const payload = buildPayload(
+    { ...job, location_id: resolvedLocationId },
+    tracking,
+    changedAt,
+    { status, triggerKey, eventName },
+  );
+  const subscriptions = await triggerDb.getActiveSubscriptions(resolvedLocationId, triggerKey);
+  console.log(`[GHL Trigger] Job ${job.id}: found ${subscriptions.length} active ${triggerKey} subscription(s) for location ${resolvedLocationId}`);
   if (subscriptions.length === 0) {
     return { emitted: false, reason: 'no_active_subscriptions', payload };
   }
 
-  const eventKey = [job.id, 'SHIPPED', changedAt || job.updated_at || 'unknown'].join('|');
+  const eventKey = [job.id, triggerKey, status, changedAt || job.updated_at || 'unknown'].join('|');
   const results = [];
 
   for (const subscription of subscriptions) {
     if (!filterMatches(subscription.filters, payload)) {
-      console.warn(`[GHL Trigger] Job ${job.id}: subscription ${subscription.id} skipped because filters did not match payload status=${payload.status}`);
+      console.warn(`[GHL Trigger] Job ${job.id}: subscription ${subscription.id} skipped because filters did not match payload status=${payload.status} ghlProductId=${payload.ghlProductId || 'none'}`);
       results.push({ subscriptionId: subscription.id, skipped: true, reason: 'filter_mismatch' });
       continue;
     }
@@ -183,11 +242,11 @@ async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt
       continue;
     }
 
-    const result = await deliverWithRetry(subscription, delivery, payload);
+    const result = await deliverWithRetry(subscription, delivery, payload, eventName);
     if (result.delivered) {
-      console.log(`[GHL Trigger] Job ${job.id}: delivered SHIPPED event to subscription ${subscription.id} with HTTP ${result.status}`);
+      console.log(`[GHL Trigger] Job ${job.id}: delivered ${eventName} to subscription ${subscription.id} with HTTP ${result.status}`);
     } else {
-      console.warn(`[GHL Trigger] Job ${job.id}: failed SHIPPED delivery to subscription ${subscription.id}`);
+      console.warn(`[GHL Trigger] Job ${job.id}: failed ${eventName} delivery to subscription ${subscription.id}`);
     }
     results.push({ subscriptionId: subscription.id, ...result });
   }
@@ -195,10 +254,39 @@ async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt
   return { emitted: true, eventKey, payload, results };
 }
 
+async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt }) {
+  return emitForTrigger({
+    jobId,
+    locationId,
+    tracking,
+    changedAt,
+    status: 'SHIPPED',
+    triggerKey: SHIPPED_TRIGGER_KEY,
+    eventName: SHIPPED_EVENT_NAME,
+  });
+}
+
+async function emitPrintJobStatusChanged({ jobId, locationId, luluStatus, tracking = [], changedAt }) {
+  const status = String(luluStatus || '').trim().toUpperCase();
+  if (!status) return { emitted: false, reason: 'missing_status' };
+  return emitForTrigger({
+    jobId,
+    locationId,
+    tracking,
+    changedAt,
+    status,
+    triggerKey: STATUS_TRIGGER_KEY,
+    eventName: STATUS_EVENT_NAME,
+  });
+}
+
 module.exports = {
   SHIPPED_TRIGGER_KEY,
   SHIPPED_EVENT_NAME,
+  STATUS_TRIGGER_KEY,
+  STATUS_EVENT_NAME,
   buildPayload,
   filterMatches,
   emitPrintJobShipped,
+  emitPrintJobStatusChanged,
 };

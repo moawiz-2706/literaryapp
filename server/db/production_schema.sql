@@ -124,6 +124,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'print_jobs' AND column_name = 'book_title') THEN
       ALTER TABLE print_jobs ADD COLUMN book_title TEXT DEFAULT '';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'print_jobs' AND column_name = 'ghl_product_id') THEN
+      ALTER TABLE print_jobs ADD COLUMN ghl_product_id TEXT;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'print_jobs' AND column_name = 'pod_package_id') THEN
       ALTER TABLE print_jobs ADD COLUMN pod_package_id TEXT DEFAULT '';
     END IF;
@@ -273,6 +276,7 @@ CREATE TABLE IF NOT EXISTS print_jobs (
   quantity               INTEGER DEFAULT 1,
   workflow_id            TEXT,
   execution_id           TEXT,
+  ghl_product_id        TEXT,
   validation_error       TEXT,
   idempotency_key        TEXT,
   external_id            TEXT,

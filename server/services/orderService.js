@@ -201,6 +201,7 @@ async function placeOrder(params) {
     quantity: params.quantity,
     workflowId: params.workflowId || null,
     executionId: params.executionId || null,
+    ghlProductId: params.book.ghl_product_id || null,
     parentJobId: params.parentJobId || null,
     idempotencyKey,
     estimatedShippingDates: costData.estimatedShippingDates,

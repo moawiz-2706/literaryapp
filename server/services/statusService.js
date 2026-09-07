@@ -118,6 +118,24 @@ function scheduleShippedEmission({ jobId, locationId, tracking, changedAt }) {
   });
 }
 
+function scheduleStatusEmission({ jobId, locationId, luluStatus, tracking, changedAt }) {
+  if (!jobId || !locationId || !luluStatus) return;
+  const triggerService = require('./ghlTriggerService');
+  setImmediate(() => {
+    triggerService.emitPrintJobStatusChanged({
+      jobId,
+      locationId,
+      luluStatus,
+      tracking,
+      changedAt,
+    }).then(result => {
+      console.log(`[GHL Trigger] ${luluStatus} status emission result for job ${jobId}: ${result?.emitted ? 'emitted' : result?.reason || 'not emitted'}`);
+    }).catch(err => {
+      console.warn(`[GHL Trigger] ${luluStatus} status emission failed for job ${jobId}:`, err.message);
+    });
+  });
+}
+
 /**
  * Record a status transition for a job. Dedupes by (job_id, lulu_status,
  * changed_at, source) so repeated webhook deliveries are harmless. Updates
@@ -152,11 +170,14 @@ async function recordTransition({
   });
 
   if (!row) {
-    // A replayed SHIPPED observation can still need delivery when the GHL
-    // subscription was created after the original transition. The delivery
-    // ledger deduplicates the resulting event per subscription/event key.
+    // A replayed observation can still need delivery when the GHL subscription
+    // was created after the original transition. The delivery ledger deduplicates
+    // the resulting event per subscription/event key.
     if (luluStatus === 'SHIPPED') {
       scheduleShippedEmission({ jobId, locationId, tracking, changedAt });
+    }
+    if (luluStatus) {
+      scheduleStatusEmission({ jobId, locationId, luluStatus, tracking, changedAt });
     }
     return { changed: false, row: null, tracking };
   }
@@ -177,6 +198,15 @@ async function recordTransition({
     scheduleShippedEmission({
       jobId,
       locationId,
+      tracking,
+      changedAt: row?.changed_at || changedAt,
+    });
+  }
+  if (luluStatus) {
+    scheduleStatusEmission({
+      jobId,
+      locationId,
+      luluStatus,
       tracking,
       changedAt: row?.changed_at || changedAt,
     });

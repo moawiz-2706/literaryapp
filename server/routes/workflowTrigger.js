@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const triggerDb = require('../db/triggerDb');
-const { SHIPPED_TRIGGER_KEY } = require('../services/ghlTriggerService');
+const {
+  SHIPPED_TRIGGER_KEY,
+  STATUS_TRIGGER_KEY,
+} = require('../services/ghlTriggerService');
+
+const SUPPORTED_TRIGGER_KEYS = new Set([SHIPPED_TRIGGER_KEY, STATUS_TRIGGER_KEY]);
 
 function extractSubscriptionSecret(req) {
   const header = req.headers['x-literaryapp-trigger-secret'] || req.headers.authorization || '';
@@ -53,7 +58,7 @@ router.post('/subscription', async (req, res) => {
     });
   }
 
-  if (triggerData.key !== SHIPPED_TRIGGER_KEY) {
+  if (!SUPPORTED_TRIGGER_KEYS.has(triggerData.key)) {
     return res.status(400).json({ error: `Unsupported trigger key: ${triggerData.key}` });
   }
 

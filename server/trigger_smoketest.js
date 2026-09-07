@@ -41,6 +41,7 @@ const payload = trigger.buildPayload({
   contact_id: 'contact-1',
   reader_name: 'Jane Doe',
   book_title: 'Example Book',
+  ghl_product_id: 'product-123',
   lulu_print_job_id: '42776',
   quantity: 1,
   shipping_level: 'MAIL',
@@ -53,7 +54,28 @@ assert.strictEqual(payload.firstName, 'Jane');
 assert.strictEqual(payload.trackingId, 'tracking-123');
 assert.strictEqual(payload.trackingUrl, 'https://tracking.example/123');
 assert.strictEqual(payload.carrierName, 'USPS');
+assert.strictEqual(payload.ghlProductId, 'product-123');
 assert.strictEqual(trigger.filterMatches([{ field: 'status', operator: '==', value: 'SHIPPED' }], payload), true);
 assert.strictEqual(trigger.filterMatches([{ field: 'status', operator: '==', value: 'DELIVERED' }], payload), false);
+assert.strictEqual(trigger.filterMatches([{ field: 'ghlProductId', operator: '==', value: 'product-123' }], payload), true);
+assert.strictEqual(trigger.filterMatches([{ field: 'bookTitle', operator: '==', value: 'product-123' }], payload), true);
+assert.strictEqual(trigger.filterMatches([{ field: 'bookTitle', operator: '==', value: { name: 'Example Book' } }], payload), true);
+
+const genericPayload = trigger.buildPayload({
+  id: 'local-job',
+  location_id: 'location-1',
+  contact_id: 'contact-1',
+  reader_name: 'Jane Doe',
+  book_title: 'Example Book',
+  ghl_product_id: 'product-123',
+  lulu_print_job_id: '42776',
+}, [], '2026-08-21T12:34:56.000Z', {
+  status: 'IN_PRODUCTION',
+  triggerKey: trigger.STATUS_TRIGGER_KEY,
+  eventName: trigger.STATUS_EVENT_NAME,
+});
+assert.strictEqual(genericPayload.event, 'LULU_PRINT_JOB_STATUS_CHANGED');
+assert.strictEqual(genericPayload.triggerKey, 'lulu_print_job_status_changed');
+assert.strictEqual(genericPayload.status, 'IN_PRODUCTION');
 
 console.log('PASS trigger smoke tests');

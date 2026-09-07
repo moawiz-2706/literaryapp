@@ -113,6 +113,10 @@ https://your-app.onrender.com/workflow-trigger/subscription
 
 Configure the header `X-LiteraryApp-Trigger-Secret` with the same value as `GHL_TRIGGER_SUBSCRIPTION_SECRET` in Render. The trigger sends contact and tracking variables into the workflow so native GHL email/SMS actions can use them.
 
+The shipped trigger also exposes `ghlProductId`, which is the Global Product ID created for the exact book title. If filtering a workflow by book, configure the Marketplace filter with reference `ghlProductId` and Internal Reference → Global Products. Keep `bookTitle` as a custom variable for message text; do not use it as the product-reference field.
+
+For workflows that should run on every Lulu lifecycle status, create the separate `Lulu Print Job Status Changed` trigger with key `lulu_print_job_status_changed` using `GHL_PRINT_JOB_STATUS_TRIGGER_DEFINITION.json` and `GHL_PRINT_JOB_STATUS_TRIGGER_SETUP_GUIDE.md`. Do not add non-shipped values to the existing `lulu_print_job_shipped` trigger; that trigger intentionally emits only `SHIPPED`.
+
 ### Step 7: Register the Lulu Webhook
 
 After the first sub-account installs the app, the middleware automatically registers the Lulu webhook. To register it manually:
