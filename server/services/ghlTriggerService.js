@@ -14,6 +14,15 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function buildExecutionPayload(payload) {
+  return {
+    ...payload,
+    data: {
+      ...payload,
+    },
+  };
+}
+
 function getShippingAddress(job) {
   if (!job?.shipping_address) return {};
   if (typeof job.shipping_address === 'object') return job.shipping_address;
@@ -152,7 +161,13 @@ async function deliverOnce(subscription, delivery, payload, eventName) {
 
   try {
     const accessToken = await ghl.getValidToken(subscription.location_id);
-    const response = await axios.post(subscription.target_url, payload, {
+    // HomeFlow's working implementation preserves the original payload and
+    // also provides the event fields under `data`.  Keep both shapes so GHL
+    // versions that resolve Marketplace variables from `data` can create the
+    // workflow event while existing flat-field trigger definitions continue
+    // to work.
+    const executionPayload = buildExecutionPayload(payload);
+    const response = await axios.post(subscription.target_url, executionPayload, {
       timeout: DELIVERY_TIMEOUT_MS,
       headers: {
         Accept: 'application/json',
@@ -326,6 +341,7 @@ async function emitPrintJobStatusChanged({ jobId, locationId, luluStatus, tracki
 }
 
 module.exports = {
+  buildExecutionPayload,
   SHIPPED_TRIGGER_KEY,
   SHIPPED_EVENT_NAME,
   STATUS_TRIGGER_KEY,

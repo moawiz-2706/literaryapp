@@ -50,6 +50,7 @@ const payload = trigger.buildPayload({
 assert.strictEqual(payload.event, 'LULU_PRINT_JOB_SHIPPED');
 assert.strictEqual(payload.status, 'SHIPPED');
 assert.strictEqual(payload.contactName, 'Jane Doe');
+assert.strictEqual(payload.contactId, 'contact-1');
 assert.strictEqual(payload.firstName, 'Jane');
 assert.strictEqual(payload.trackingId, 'tracking-123');
 assert.strictEqual(payload.trackingUrl, 'https://tracking.example/123');
@@ -60,6 +61,10 @@ assert.strictEqual(trigger.filterMatches([{ field: 'status', operator: '==', val
 assert.strictEqual(trigger.filterMatches([{ field: 'ghlProductId', operator: '==', value: 'product-123' }], payload), true);
 assert.strictEqual(trigger.filterMatches([{ field: 'bookTitle', operator: '==', value: 'product-123' }], payload), true);
 assert.strictEqual(trigger.filterMatches([{ field: 'bookTitle', operator: '==', value: { name: 'Example Book' } }], payload), true);
+const executionPayload = trigger.buildExecutionPayload(payload);
+assert.strictEqual(executionPayload.contactId, 'contact-1');
+assert.strictEqual(executionPayload.data.contactId, 'contact-1');
+assert.strictEqual(executionPayload.data.luluPrintJobId, '42776');
 assert.strictEqual(trigger.hasExplicitStatusFilter([{ field: 'status', operator: '==', value: 'PRODUCTION_DELAYED' }], 'PRODUCTION_DELAYED'), true);
 assert.strictEqual(trigger.hasExplicitStatusFilter([{ field: 'status', operator: '==', value: 'SHIPPED' }], 'PRODUCTION_DELAYED'), false);
 
