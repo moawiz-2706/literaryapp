@@ -28,6 +28,7 @@
     "luluPrintJobId": "42776",
     "internalPrintJobId": "local-print-job-uuid",
     "bookTitle": "Example Book",
+    "productTitle": "Example Book",
     "ghlProductId": "highlevel-global-product-id",
     "quantity": 1,
     "shippingLevel": "MAIL"
@@ -67,6 +68,7 @@
     { "label": "Lulu Print Job ID", "reference": "luluPrintJobId", "type": "string" },
     { "label": "Internal Print Job ID", "reference": "internalPrintJobId", "type": "string" },
     { "label": "Book Title", "reference": "bookTitle", "type": "string" },
+    { "label": "Product Title", "reference": "productTitle", "type": "string" },
     { "label": "Global Product ID", "reference": "ghlProductId", "type": "string" },
     { "label": "Quantity", "reference": "quantity", "type": "string" },
     { "label": "Shipping Level", "reference": "shippingLevel", "type": "string" },
