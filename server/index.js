@@ -51,37 +51,18 @@ app.use(cors({
   credentials: true
 }));
 
-// ── Raw Body Capture (required for webhook HMAC verification) ─────────────────
-// Must run before express.json() for the webhook routes.
-app.use((req, res, next) => {
-  if (req.path.startsWith('/webhooks/')) {
-    // Guard: a request that has no readable stream (tests, or already-consumed
-    // bodies) cannot supply raw body bytes. Express's body parser will still
-    // attempt to read it later, so mark parsing as done to avoid the second pass.
-    const readable = typeof req.read === 'function' || typeof req.pipe === 'function';
-    if (!readable || req._rawBodyPrepared) {
-      // Already-buffered input: the caller set req.body directly (e.g. tests)
-      req.rawBody = req.body ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : '';
-      req._rawBodyPrepared = true;
-      next();
-      return;
+// ── Body Parsing + Raw Body Capture ───────────────────────────────────────────
+// Capture the exact bytes through Express's verify hook. Reading the stream in
+// a separate middleware and then calling express.json() causes raw-body to
+// throw "stream encoding should not be set" on webhook requests.
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buffer) => {
+    if (req.path.startsWith('/webhooks/')) {
+      req.rawBody = Buffer.from(buffer);
     }
-    let data = '';
-    req.setEncoding('utf8');
-    req.on('data', chunk => { data += chunk; });
-    req.on('end', () => {
-      req.rawBody = data;
-      try { req.body = JSON.parse(data); } catch (_) { req.body = {}; }
-      next();
-    });
-    req.on('error', () => next());
-  } else {
-    next();
-  }
-});
-
-// ── Body Parsing ──────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Logging ───────────────────────────────────────────────────────────────────
