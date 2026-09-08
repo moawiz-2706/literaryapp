@@ -18,10 +18,9 @@
 -- missing tables degrade explicitly instead of crashing.
 --
 -- Tables: ghl_tokens, lulu_tokens (legacy fallback), lulu_credentials,
--- lulu_tokens_location, books, print_jobs, webhook_log, wallet_balance
--- (legacy, unused), stripe_accounts (optional), print_job_status_history,
--- lulu_webhooks, ghl_trigger_subscriptions, ghl_trigger_deliveries,
--- ghl_pipeline_stages.
+-- lulu_tokens_location, books, print_jobs, webhook_log,
+-- print_job_status_history, lulu_webhooks, ghl_trigger_subscriptions,
+-- ghl_trigger_deliveries, ghl_pipeline_stages.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- ── 0. Reconcile EXISTING core tables — bring them to the full column set ─────
@@ -317,32 +316,6 @@ CREATE TABLE IF NOT EXISTS webhook_log (
 );
 CREATE INDEX IF NOT EXISTS idx_webhook_log_source ON webhook_log(source);
 CREATE INDEX IF NOT EXISTS idx_webhook_log_event_type ON webhook_log(event_type);
-
--- ── 8. Wallet Balance (Legacy — unused) ───────────────────────────────────────
--- No application code references this table anymore: Lulu handles payments
--- directly. Kept in the schema because earlier migrations created it. Safe to
--- delete later (optional cleanup script provided separately).
-CREATE TABLE IF NOT EXISTS wallet_balance (
-  id                SERIAL PRIMARY KEY,
-  location_id       VARCHAR(255) NOT NULL UNIQUE,
-  balance           NUMERIC(12,2) NOT NULL DEFAULT 0,
-  last_transaction  JSONB,
-  created_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_wallet_balance_location_id ON wallet_balance(location_id);
-
--- ── 9. Stripe Connect (Optional) ─────────────────────────────────────────────
--- Stores Stripe Connect account IDs per location. Only referenced by the
--- guarded Stripe webhook handler; payment flows do not use it.
-CREATE TABLE IF NOT EXISTS stripe_accounts (
-  id                SERIAL PRIMARY KEY,
-  location_id       VARCHAR(255) NOT NULL UNIQUE,
-  stripe_account_id TEXT NOT NULL,
-  created_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_stripe_accounts_location_id ON stripe_accounts(location_id);
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- MIGRATION 004 OBJECTS — status history, webhook bookkeeping, CRM stage config
@@ -766,7 +739,7 @@ FROM information_schema.tables t
 WHERE t.table_schema = 'public'
   AND t.table_name IN (
     'ghl_tokens', 'lulu_tokens', 'lulu_credentials', 'lulu_tokens_location',
-    'books', 'print_jobs', 'webhook_log', 'wallet_balance', 'stripe_accounts',
+    'books', 'print_jobs', 'webhook_log',
     'print_job_status_history', 'lulu_webhooks', 'ghl_trigger_subscriptions',
     'ghl_trigger_deliveries', 'ghl_pipeline_stages'
   )

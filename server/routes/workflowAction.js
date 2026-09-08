@@ -461,7 +461,7 @@ router.post('/create-print-job', async (req, res) => {
     }
 
     // ── Return output variables ─────────────────────────────────────────
-    console.log('[WorkflowAction/create-print-job] SUCCESS — jobId:', jobId, ', luluId:', luluResult?.id);
+    console.log('[WorkflowAction/create-print-job] SUCCESS — jobId:', jobId, ', luluId:', orderResult.luluPrintJobId || luluResult?.id || 'none');
 
     return res.status(orderResult.idempotent ? 200 : 201).json({
       jobId,
