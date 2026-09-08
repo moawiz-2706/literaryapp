@@ -1,6 +1,7 @@
 const axios = require('axios');
 const db = require('../db/database');
 const triggerDb = require('../db/triggerDb');
+const ghl = require('./ghlService');
 
 const SHIPPED_TRIGGER_KEY = 'lulu_print_job_shipped';
 const SHIPPED_EVENT_NAME = 'LULU_PRINT_JOB_SHIPPED';
@@ -146,10 +147,15 @@ async function deliverOnce(subscription, delivery, payload, eventName) {
   });
 
   try {
+    const accessToken = await ghl.getValidToken(subscription.location_id);
     const response = await axios.post(subscription.target_url, payload, {
       timeout: DELIVERY_TIMEOUT_MS,
       headers: {
+        Accept: 'application/json',
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        Version: '2021-07-28',
+        'User-Agent': 'LiteraryApp-CustomTrigger/1.0',
         'X-LiteraryApp-Event': eventName,
       },
       validateStatus: () => true,
