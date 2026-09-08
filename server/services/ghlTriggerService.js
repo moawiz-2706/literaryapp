@@ -14,11 +14,34 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function buildExecutionPayload(payload) {
+function buildExecutionPayload(payload, subscription = null) {
+  const executionData = { ...payload };
+  const filters = Array.isArray(subscription?.filters) ? subscription.filters : [];
+  const legacyBookFilter = filters.find(filter => {
+    const field = filter?.field || filter?.reference || filter?.id || filter?.key;
+    return field === 'bookTitle';
+  });
+
+  // Older published GHL versions exposed the filter as `bookTitle`, while
+  // Internal Reference / Global Products stores the product ID as its value.
+  // HighLevel evaluates the received payload itself, so sending the readable
+  // title in bookTitle cannot satisfy that saved filter. Adapt only that
+  // legacy subscription; newer versions use ghlProductId directly.
+  if (legacyBookFilter && payload.ghlProductId) {
+    const expected = comparableValues(
+      legacyBookFilter.value ?? legacyBookFilter.selectedValue ?? legacyBookFilter.values
+    );
+    const productId = String(payload.ghlProductId).trim();
+    if (expected.includes(productId)) {
+      executionData.productTitle = payload.bookTitle || '';
+      executionData.bookTitle = productId;
+    }
+  }
+
   return {
-    ...payload,
+    ...executionData,
     data: {
-      ...payload,
+      ...executionData,
     },
   };
 }
@@ -166,7 +189,7 @@ async function deliverOnce(subscription, delivery, payload, eventName) {
     // versions that resolve Marketplace variables from `data` can create the
     // workflow event while existing flat-field trigger definitions continue
     // to work.
-    const executionPayload = buildExecutionPayload(payload);
+    const executionPayload = buildExecutionPayload(payload, subscription);
     const response = await axios.post(subscription.target_url, executionPayload, {
       timeout: DELIVERY_TIMEOUT_MS,
       headers: {

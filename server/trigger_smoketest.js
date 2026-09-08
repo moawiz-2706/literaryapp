@@ -65,6 +65,12 @@ const executionPayload = trigger.buildExecutionPayload(payload);
 assert.strictEqual(executionPayload.contactId, 'contact-1');
 assert.strictEqual(executionPayload.data.contactId, 'contact-1');
 assert.strictEqual(executionPayload.data.luluPrintJobId, '42776');
+const legacyExecutionPayload = trigger.buildExecutionPayload(payload, {
+  filters: [{ field: 'bookTitle', value: 'product-123' }],
+});
+assert.strictEqual(legacyExecutionPayload.bookTitle, 'product-123');
+assert.strictEqual(legacyExecutionPayload.productTitle, 'Example Book');
+assert.strictEqual(legacyExecutionPayload.data.bookTitle, 'product-123');
 assert.strictEqual(trigger.hasExplicitStatusFilter([{ field: 'status', operator: '==', value: 'PRODUCTION_DELAYED' }], 'PRODUCTION_DELAYED'), true);
 assert.strictEqual(trigger.hasExplicitStatusFilter([{ field: 'status', operator: '==', value: 'SHIPPED' }], 'PRODUCTION_DELAYED'), false);
 
