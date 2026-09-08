@@ -144,6 +144,7 @@ async function placeOrder(params) {
   // ── Idempotency: return the existing order if one exists ────────────────────
   const existing = await statusDb.getPrintJobByIdempotencyKey(params.locationId, idempotencyKey);
   if (existing) {
+    console.log(`[OrderService] Idempotent reuse for location ${params.locationId}: local job ${existing.id}, existing Lulu job ${existing.lulu_print_job_id || 'none'}; Lulu API was not called.`);
     return {
       jobId: existing.id,
       luluPrintJobId: existing.lulu_print_job_id,

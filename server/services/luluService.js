@@ -8,7 +8,7 @@
  * in the database. All Lulu API calls require a `locationId` so the correct
  * credentials and token cache are resolved.
  *
- * Hardening applied in the 2026 audit (see AUDIT_REPORT_FINAL.md):
+ * Hardening applied during the integration review:
  *   - calculatePrintCost now sends `shipping_level` (the spec field) and never
  *     prices from a fabricated address; address validation warnings and the
  *     suggested address are surfaced to callers.
@@ -44,10 +44,14 @@ const inFlightTokens = new Map();
 // ── Resolve Base URL ─────────────────────────────────────────────────────────
 
 function resolveBaseUrl(environment) {
-  if (environment === 'production') {
+  const normalized = String(environment || '').trim().toLowerCase();
+  if (normalized === 'production') {
     return 'https://api.lulu.com';
   }
-  // Default to sandbox or legacy global setting
+  if (normalized === 'sandbox') {
+    return 'https://api.sandbox.lulu.com';
+  }
+  // Default only when no explicit per-location environment is available.
   return LULU_SANDBOX ? 'https://api.sandbox.lulu.com' : 'https://api.lulu.com';
 }
 
@@ -86,6 +90,7 @@ async function getLuluToken(locationId, forceRefresh = false) {
   if (!forceRefresh && locationId) {
     const cached = tokenCaches.get(locationId);
     if (cached && cached.expiresAt > Math.floor(Date.now() / 1000)) {
+      console.log(`[Lulu] Reusing cached token for location ${locationId}; API environment: ${cached.baseUrl}`);
       return { accessToken: cached.accessToken, baseUrl: cached.baseUrl };
     }
   }
@@ -97,6 +102,7 @@ async function getLuluToken(locationId, forceRefresh = false) {
       const creds = await resolveCredentials(locationId);
       const baseUrl = resolveBaseUrl(creds.environment);
       tokenCaches.set(locationId, { accessToken: stored.access_token, expiresAt: stored.expires_at, baseUrl });
+      console.log(`[Lulu] Reusing database token for location ${locationId}; configured environment: ${creds.environment}; API environment: ${baseUrl}`);
       return { accessToken: stored.access_token, baseUrl };
     }
   }

@@ -144,7 +144,7 @@ async function start() {
   app.listen(PORT, () => {
     console.log(`[Server] LiteraryApp x Lulu Middleware running on port ${PORT}`);
     console.log(`[Server] Architecture: Per-subaccount Lulu integration`);
-    console.log(`[Server] Lulu mode: ${process.env.LULU_SANDBOX === 'true' ? 'SANDBOX' : 'PRODUCTION'}`);
+    console.log(`[Server] Lulu global fallback mode: ${process.env.LULU_SANDBOX === 'true' ? 'SANDBOX' : 'PRODUCTION'} (per-location environment is read from lulu_credentials)`);
     console.log(`[Server] Frontend: ${process.env.FRONTEND_BASE_URL || 'not set'}`);
     console.log(`[Server] Workflow Action URL: ${process.env.APP_BASE_URL || 'not set'}/workflow-action/create-print-job`);
   });
