@@ -15,6 +15,8 @@
     "locationId": "ghl_location_id",
     "contactId": "ghl_contact_id",
     "contactName": "Jane Doe",
+    "email": "jane@example.com",
+    "phone": "+1 202-555-0147",
     "firstName": "Jane",
     "lastName": "Doe",
     "trackingId": null,
@@ -63,6 +65,8 @@
   "customVariables": [
     { "label": "Contact ID", "reference": "contactId", "type": "string" },
     { "label": "Contact Name", "reference": "contactName", "type": "string" },
+    { "label": "Email", "reference": "email", "type": "string" },
+    { "label": "Phone", "reference": "phone", "type": "string" },
     { "label": "First Name", "reference": "firstName", "type": "string" },
     { "label": "Last Name", "reference": "lastName", "type": "string" },
     { "label": "Tracking ID", "reference": "trackingId", "type": "string" },

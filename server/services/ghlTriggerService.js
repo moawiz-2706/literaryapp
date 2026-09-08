@@ -86,6 +86,8 @@ function buildPayload(job, tracking, changedAt, options = {}) {
   const nameParts = contactName.split(/\s+/).filter(Boolean);
   const firstName = String(address.first_name || nameParts[0] || '').trim();
   const lastName = String(address.last_name || nameParts.slice(1).join(' ')).trim();
+  const email = String(job.reader_email || address.email || '').trim();
+  const phone = String(address.phone_number || address.phone || '').trim();
   const trackingItems = Array.isArray(tracking) ? tracking : [];
   const trackingIds = trackingItems.map(item => item?.id).filter(Boolean).map(String);
   const trackingUrls = trackingItems.map(item => item?.url).filter(Boolean).map(String);
@@ -102,6 +104,8 @@ function buildPayload(job, tracking, changedAt, options = {}) {
     locationId: job.location_id,
     contactId: job.contact_id || null,
     contactName,
+    email,
+    phone,
     firstName,
     lastName,
     trackingId: trackingIds[0] || null,
