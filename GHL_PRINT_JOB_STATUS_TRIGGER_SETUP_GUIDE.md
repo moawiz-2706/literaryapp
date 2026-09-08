@@ -54,7 +54,7 @@ The backend also supports older subscriptions that still use `reference = bookTi
 
 ## New trigger: all Lulu status changes
 
-Create a second Marketplace trigger. Do not change the meaning of the existing shipped trigger because its key is immutable and existing workflows may depend on it.
+Create a second Marketplace trigger when possible. If the already-published shipped trigger must be reused, LiteraryApp provides a compatibility path: it can deliver a non-shipped status through `lulu_print_job_shipped` only when the saved subscription contains an explicit matching `status` filter. The preferred key for new workflows remains `lulu_print_job_status_changed`.
 
 ```text
 Name: Lulu Print Job Status Changed

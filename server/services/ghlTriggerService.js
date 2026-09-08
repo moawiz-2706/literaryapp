@@ -191,7 +191,16 @@ async function deliverWithRetry(subscription, delivery, payload, eventName) {
   return { delivered: false };
 }
 
-async function emitForTrigger({ jobId, locationId, tracking = [], changedAt, status, triggerKey, eventName }) {
+function hasExplicitStatusFilter(filters, status) {
+  return (Array.isArray(filters) ? filters : []).some(filter => {
+    const field = filter?.field || filter?.reference || filter?.id || filter?.key;
+    if (field !== 'status') return false;
+    const expected = filter?.value ?? filter?.selectedValue ?? filter?.values;
+    return comparableValues(expected).some(value => value.toUpperCase() === String(status || '').toUpperCase());
+  });
+}
+
+async function emitForTrigger({ jobId, locationId, tracking = [], changedAt, status, triggerKey, eventName, requireExplicitStatusFilter = false }) {
   let job = await db.getPrintJobById(jobId);
   if (!job) {
     console.warn(`[GHL Trigger] Cannot emit ${eventName}; job ${jobId} was not found.`);
@@ -221,6 +230,11 @@ async function emitForTrigger({ jobId, locationId, tracking = [], changedAt, sta
   const results = [];
 
   for (const subscription of subscriptions) {
+    if (requireExplicitStatusFilter && status !== 'SHIPPED' && !hasExplicitStatusFilter(subscription.filters, status)) {
+      console.warn(`[GHL Trigger] Job ${job.id}: legacy ${triggerKey} subscription ${subscription.id} skipped because a non-SHIPPED status requires an explicit status filter`);
+      results.push({ subscriptionId: subscription.id, skipped: true, reason: 'legacy_status_filter_required' });
+      continue;
+    }
     if (!filterMatches(subscription.filters, payload)) {
       console.warn(`[GHL Trigger] Job ${job.id}: subscription ${subscription.id} skipped because filters did not match payload status=${payload.status} ghlProductId=${payload.ghlProductId || 'none'}`);
       results.push({ subscriptionId: subscription.id, skipped: true, reason: 'filter_mismatch' });
@@ -269,7 +283,7 @@ async function emitPrintJobShipped({ jobId, locationId, tracking = [], changedAt
 async function emitPrintJobStatusChanged({ jobId, locationId, luluStatus, tracking = [], changedAt }) {
   const status = String(luluStatus || '').trim().toUpperCase();
   if (!status) return { emitted: false, reason: 'missing_status' };
-  return emitForTrigger({
+  const result = await emitForTrigger({
     jobId,
     locationId,
     tracking,
@@ -278,6 +292,27 @@ async function emitPrintJobStatusChanged({ jobId, locationId, luluStatus, tracki
     triggerKey: STATUS_TRIGGER_KEY,
     eventName: STATUS_EVENT_NAME,
   });
+
+  // Backward compatibility for the already-published Marketplace trigger. A
+  // workflow that was configured with the published `lulu_print_job_shipped`
+  // key can receive another status only when it explicitly filters for that
+  // status. SHIPPED itself is handled by emitPrintJobShipped below, so avoid
+  // emitting it twice through this fallback path.
+  if (status !== 'SHIPPED' && result.reason === 'no_active_subscriptions') {
+    console.log(`[GHL Trigger] No active ${STATUS_TRIGGER_KEY} subscription for job ${jobId}; trying published ${SHIPPED_TRIGGER_KEY} compatibility path for status ${status}`);
+    const legacyResult = await emitForTrigger({
+      jobId,
+      locationId,
+      tracking,
+      changedAt,
+      status,
+      triggerKey: SHIPPED_TRIGGER_KEY,
+      eventName: SHIPPED_EVENT_NAME,
+      requireExplicitStatusFilter: true,
+    });
+    return { ...legacyResult, compatibilityFallback: true, fallbackFrom: STATUS_TRIGGER_KEY };
+  }
+  return result;
 }
 
 module.exports = {
@@ -287,6 +322,7 @@ module.exports = {
   STATUS_EVENT_NAME,
   buildPayload,
   filterMatches,
+  hasExplicitStatusFilter,
   emitPrintJobShipped,
   emitPrintJobStatusChanged,
 };

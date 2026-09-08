@@ -115,7 +115,7 @@ Configure the header `X-LiteraryApp-Trigger-Secret` with the same value as `GHL_
 
 The shipped trigger also exposes `ghlProductId`, which is the Global Product ID created for the exact book title. If filtering a workflow by book, configure the Marketplace filter with reference `ghlProductId` and Internal Reference → Global Products. Keep `bookTitle` as a custom variable for message text; do not use it as the product-reference field.
 
-For workflows that should run on every Lulu lifecycle status, create the separate `Lulu Print Job Status Changed` trigger with key `lulu_print_job_status_changed` using `GHL_PRINT_JOB_STATUS_TRIGGER_DEFINITION.json` and `GHL_PRINT_JOB_STATUS_TRIGGER_SETUP_GUIDE.md`. Do not add non-shipped values to the existing `lulu_print_job_shipped` trigger; that trigger intentionally emits only `SHIPPED`.
+For workflows that should run on every Lulu lifecycle status, create the separate `Lulu Print Job Status Changed` trigger with key `lulu_print_job_status_changed` using `GHL_PRINT_JOB_STATUS_TRIGGER_DEFINITION.json` and `GHL_PRINT_JOB_STATUS_TRIGGER_SETUP_GUIDE.md`. For an already-published `lulu_print_job_shipped` trigger that cannot be replaced, LiteraryApp also supports a compatibility path: a non-`SHIPPED` status is delivered through that published key only when the subscription contains an explicit matching `status` filter. New workflows should still use `lulu_print_job_status_changed`.
 
 ### Step 7: Register the Lulu Webhook
 

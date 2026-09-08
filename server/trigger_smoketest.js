@@ -60,6 +60,8 @@ assert.strictEqual(trigger.filterMatches([{ field: 'status', operator: '==', val
 assert.strictEqual(trigger.filterMatches([{ field: 'ghlProductId', operator: '==', value: 'product-123' }], payload), true);
 assert.strictEqual(trigger.filterMatches([{ field: 'bookTitle', operator: '==', value: 'product-123' }], payload), true);
 assert.strictEqual(trigger.filterMatches([{ field: 'bookTitle', operator: '==', value: { name: 'Example Book' } }], payload), true);
+assert.strictEqual(trigger.hasExplicitStatusFilter([{ field: 'status', operator: '==', value: 'PRODUCTION_DELAYED' }], 'PRODUCTION_DELAYED'), true);
+assert.strictEqual(trigger.hasExplicitStatusFilter([{ field: 'status', operator: '==', value: 'SHIPPED' }], 'PRODUCTION_DELAYED'), false);
 
 const genericPayload = trigger.buildPayload({
   id: 'local-job',
