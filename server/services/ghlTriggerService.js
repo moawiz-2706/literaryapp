@@ -24,18 +24,12 @@ function buildExecutionPayload(payload, subscription = null) {
 
   // Older published GHL versions exposed the filter as `bookTitle`, while
   // Internal Reference / Global Products stores the product ID as its value.
-  // HighLevel evaluates the received payload itself, so sending the readable
-  // title in bookTitle cannot satisfy that saved filter. Adapt only that
-  // legacy subscription; newer versions use ghlProductId directly.
+  // Keep bookTitle readable. The canonical trigger exposes ghlProductId as
+  // the filterable product reference; legacy subscriptions should be migrated
+  // to that reference instead of corrupting the product name in the payload.
   if (legacyBookFilter && payload.ghlProductId) {
-    const expected = comparableValues(
-      legacyBookFilter.value ?? legacyBookFilter.selectedValue ?? legacyBookFilter.values
-    );
-    const productId = String(payload.ghlProductId).trim();
-    if (expected.includes(productId)) {
-      executionData.productTitle = payload.bookTitle || '';
-      executionData.bookTitle = productId;
-    }
+    executionData.bookTitle = payload.bookTitle || '';
+    executionData.productTitle = payload.productTitle || payload.bookTitle || '';
   }
 
   return {
@@ -149,6 +143,9 @@ function buildPayload(job, tracking, changedAt, options = {}) {
     luluPrintJobId: job.lulu_print_job_id || null,
     internalPrintJobId: job.id,
     bookTitle: job.book_title || '',
+    // Keep both human-readable product fields populated. GHL workflows can
+    // use bookTitle/productTitle for display and ghlProductId for filtering.
+    productTitle: job.book_title || '',
     // This is the actual GHL Global Product ID created for the book.
     ghlProductId: job.ghl_product_id || null,
     quantity: job.quantity || 1,
